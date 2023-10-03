@@ -1,3 +1,5 @@
+Index: b/binutils/configure
+===================================================================
 --- a/binutils/configure
 +++ b/binutils/configure
 @@ -634,6 +634,7 @@ ac_subst_vars='am__EXEEXT_FALSE
@@ -8,25 +10,25 @@
  EMULATION_VECTOR
  EMULATION
  OBJDUMP_PRIVATE_OFILES
-@@ -10971,7 +10972,7 @@ else
+@@ -10817,7 +10818,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 10974 "configure"
-+#line 10975 "configure"
+-#line 10820 "configure"
++#line 10821 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -11077,7 +11078,7 @@ else
+@@ -10923,7 +10924,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11080 "configure"
-+#line 11081 "configure"
+-#line 10926 "configure"
++#line 10927 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -14732,6 +14733,9 @@ EMULATION_VECTOR=$targ_emul_vector
+@@ -14777,6 +14778,9 @@ EMULATION_VECTOR=$targ_emul_vector
  
  
  
@@ -36,9 +38,11 @@
  # Required for html and install-html
  
  
+Index: b/binutils/configure.ac
+===================================================================
 --- a/binutils/configure.ac
 +++ b/binutils/configure.ac
-@@ -529,6 +529,9 @@ EMULATION_VECTOR=$targ_emul_vector
+@@ -555,6 +555,9 @@ EMULATION_VECTOR=$targ_emul_vector
  AC_SUBST(EMULATION)
  AC_SUBST(EMULATION_VECTOR)
  
@@ -48,6 +52,8 @@
  # Required for html and install-html
  AC_SUBST(datarootdir)
  AC_SUBST(docdir)
+Index: b/binutils/Makefile.am
+===================================================================
 --- a/binutils/Makefile.am
 +++ b/binutils/Makefile.am
 @@ -169,8 +169,8 @@ BFDLIB = ../bfd/libbfd.la
@@ -61,9 +67,11 @@
  else
  LIBCTF =
  LIBCTF_NOBFD =
+Index: b/binutils/Makefile.in
+===================================================================
 --- a/binutils/Makefile.in
 +++ b/binutils/Makefile.in
-@@ -245,7 +245,8 @@ am_objdump_OBJECTS = objdump.$(OBJEXT) d
+@@ -246,7 +246,8 @@ am_objdump_OBJECTS = objdump.$(OBJEXT) d
  	demanguse.$(OBJEXT) $(am__objects_3) $(am__objects_1) \
  	$(am__objects_2)
  objdump_OBJECTS = $(am_objdump_OBJECTS)
@@ -73,7 +81,7 @@
  am_ranlib_OBJECTS = ar.$(OBJEXT) is-ranlib.$(OBJEXT) arparse.$(OBJEXT) \
  	arlex.$(OBJEXT) arsup.$(OBJEXT) rename.$(OBJEXT) \
  	binemul.$(OBJEXT) emul_$(EMULATION).$(OBJEXT) $(am__objects_1)
-@@ -254,7 +255,8 @@ am_readelf_OBJECTS = readelf.$(OBJEXT) v
+@@ -255,7 +256,8 @@ am_readelf_OBJECTS = readelf.$(OBJEXT) v
  	unwind-ia64.$(OBJEXT) dwarf.$(OBJEXT) demanguse.$(OBJEXT) \
  	$(am__objects_2)
  readelf_OBJECTS = $(am_readelf_OBJECTS)
@@ -83,7 +91,7 @@
  am_size_OBJECTS = size.$(OBJEXT) $(am__objects_1)
  size_OBJECTS = $(am_size_OBJECTS)
  size_LDADD = $(LDADD)
-@@ -485,6 +487,7 @@ CC_FOR_BUILD = @CC_FOR_BUILD@
+@@ -486,6 +488,7 @@ CC_FOR_BUILD = @CC_FOR_BUILD@
  CFLAGS = @CFLAGS@
  CPP = @CPP@
  CPPFLAGS = @CPPFLAGS@
@@ -91,7 +99,7 @@
  CYGPATH_W = @CYGPATH_W@
  DATADIRNAME = @DATADIRNAME@
  DEBUGINFOD_CFLAGS = @DEBUGINFOD_CFLAGS@
-@@ -733,9 +736,9 @@ ELFLIBS = elfcomm.c
+@@ -738,9 +741,9 @@ ELFLIBS = elfcomm.c
  BFDLIB = ../bfd/libbfd.la
  OPCODES = ../opcodes/libopcodes.la
  @ENABLE_LIBCTF_FALSE@LIBCTF = 
@@ -100,9 +108,11 @@
  @ENABLE_LIBCTF_FALSE@LIBCTF_NOBFD = 
 -@ENABLE_LIBCTF_TRUE@LIBCTF_NOBFD = ../libctf/libctf-nobfd.la
 +@ENABLE_LIBCTF_TRUE@LIBCTF_NOBFD = ../libctf/libctf-nobfd@CTF_SOVER_EXT@.la
+ LIBSFRAME = ../libsframe/libsframe.la
  LIBIBERTY = ../libiberty/libiberty.a
  POTFILES = $(CFILES) $(DEBUG_SRCS) $(HFILES)
- EXPECT = expect
+Index: b/ld/configure
+===================================================================
 --- a/ld/configure
 +++ b/ld/configure
 @@ -634,6 +634,7 @@ ac_subst_vars='am__EXEEXT_FALSE
@@ -110,28 +120,28 @@
  LTLIBOBJS
  LIBOBJS
 +CTF_SOVER_EXT
+ TESTSFRAMELIB
  TESTCTFLIB
  TESTBFDLIB
- EMULATION_LIBPATH
-@@ -11454,7 +11455,7 @@ else
+@@ -11625,7 +11626,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11457 "configure"
-+#line 11458 "configure"
+-#line 11628 "configure"
++#line 11629 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -11560,7 +11561,7 @@ else
+@@ -11731,7 +11732,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11563 "configure"
-+#line 11564 "configure"
+-#line 11734 "configure"
++#line 11735 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -17030,6 +17031,9 @@ fi
+@@ -17522,6 +17523,9 @@ fi
  ac_config_commands="$ac_config_commands default"
  
  
@@ -141,9 +151,11 @@
  
  
  
+Index: b/ld/configure.ac
+===================================================================
 --- a/ld/configure.ac
 +++ b/ld/configure.ac
-@@ -591,6 +591,9 @@ sed -e '/^SRC-POTFILES =/r po/SRC-POTFIL
+@@ -676,6 +676,9 @@ sed -e '/^SRC-POTFILES =/r po/SRC-POTFIL
      -e "s,@GMOFILES@,$GMOFILES," \
      po/Makefile.in > po/Makefile]],[[]])
  
@@ -153,6 +165,8 @@
  dnl Required by html, pdf, install-pdf and install-html
  AC_SUBST(datarootdir)
  AC_SUBST(docdir)
+Index: b/ld/Makefile.am
+===================================================================
 --- a/ld/Makefile.am
 +++ b/ld/Makefile.am
 @@ -145,7 +145,7 @@ AM_CPPFLAGS = -I. -I$(srcdir) -I../bfd -
@@ -164,9 +178,11 @@
  else
  LIBCTF =
  endif
+Index: b/ld/Makefile.in
+===================================================================
 --- a/ld/Makefile.in
 +++ b/ld/Makefile.in
-@@ -213,7 +213,8 @@ am_ld_new_OBJECTS = ldgram.$(OBJEXT) ldl
+@@ -215,7 +215,8 @@ am_ld_new_OBJECTS = ldgram.$(OBJEXT) ldl
  	plugin.$(OBJEXT) ldbuildid.$(OBJEXT)
  ld_new_OBJECTS = $(am_ld_new_OBJECTS)
  am__DEPENDENCIES_1 =
@@ -176,7 +192,7 @@
  AM_V_P = $(am__v_P_@AM_V@)
  am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
  am__v_P_0 = false
-@@ -374,6 +375,7 @@ CCDEPMODE = @CCDEPMODE@
+@@ -376,6 +377,7 @@ CCDEPMODE = @CCDEPMODE@
  CFLAGS = @CFLAGS@
  CPP = @CPP@
  CPPFLAGS = @CPPFLAGS@
@@ -184,7 +200,7 @@
  CXX = @CXX@
  CXXCPP = @CXXCPP@
  CXXDEPMODE = @CXXDEPMODE@
-@@ -639,7 +641,7 @@ AM_CPPFLAGS = -I. -I$(srcdir) -I../bfd -
+@@ -649,7 +651,7 @@ AM_CPPFLAGS = -I. -I$(srcdir) -I../bfd -
  BFDLIB = ../bfd/libbfd.la
  LIBIBERTY = ../libiberty/libiberty.a
  @ENABLE_LIBCTF_FALSE@LIBCTF = 
@@ -193,6 +209,8 @@
  
  # These all start with e so 'make clean' can find them.
  ALL_EMULATION_SOURCES = \
+Index: b/libctf/configure
+===================================================================
 --- a/libctf/configure
 +++ b/libctf/configure
 @@ -635,6 +635,7 @@ ac_subst_vars='am__EXEEXT_FALSE
@@ -202,75 +220,26 @@
 +CTF_SOVER_EXT
  VERSION_FLAGS_NOBFD
  VERSION_FLAGS
- TCL_TRY_FALSE
-@@ -771,7 +772,6 @@ infodir
- docdir
- oldincludedir
- includedir
--runstatedir
- localstatedir
- sharedstatedir
- sysconfdir
-@@ -856,7 +856,6 @@ datadir='${datarootdir}'
- sysconfdir='${prefix}/etc'
- sharedstatedir='${prefix}/com'
- localstatedir='${prefix}/var'
--runstatedir='${localstatedir}/run'
- includedir='${prefix}/include'
- oldincludedir='/usr/include'
- docdir='${datarootdir}/doc/${PACKAGE_TARNAME}'
-@@ -1109,15 +1108,6 @@ do
-   | -silent | --silent | --silen | --sile | --sil)
-     silent=yes ;;
- 
--  -runstatedir | --runstatedir | --runstatedi | --runstated \
--  | --runstate | --runstat | --runsta | --runst | --runs \
--  | --run | --ru | --r)
--    ac_prev=runstatedir ;;
--  -runstatedir=* | --runstatedir=* | --runstatedi=* | --runstated=* \
--  | --runstate=* | --runstat=* | --runsta=* | --runst=* | --runs=* \
--  | --run=* | --ru=* | --r=*)
--    runstatedir=$ac_optarg ;;
--
-   -sbindir | --sbindir | --sbindi | --sbind | --sbin | --sbi | --sb)
-     ac_prev=sbindir ;;
-   -sbindir=* | --sbindir=* | --sbindi=* | --sbind=* | --sbin=* \
-@@ -1255,7 +1245,7 @@ fi
- for ac_var in	exec_prefix prefix bindir sbindir libexecdir datarootdir \
- 		datadir sysconfdir sharedstatedir localstatedir includedir \
- 		oldincludedir docdir infodir htmldir dvidir pdfdir psdir \
--		libdir localedir mandir runstatedir
-+		libdir localedir mandir
- do
-   eval ac_val=\$$ac_var
-   # Remove trailing slashes.
-@@ -1408,7 +1398,6 @@ Fine tuning of the installation director
-   --sysconfdir=DIR        read-only single-machine data [PREFIX/etc]
-   --sharedstatedir=DIR    modifiable architecture-independent data [PREFIX/com]
-   --localstatedir=DIR     modifiable single-machine data [PREFIX/var]
--  --runstatedir=DIR       modifiable per-process data [LOCALSTATEDIR/run]
-   --libdir=DIR            object code libraries [EPREFIX/lib]
-   --includedir=DIR        C header files [PREFIX/include]
-   --oldincludedir=DIR     C header files for non-gcc [/usr/include]
-@@ -11641,7 +11630,7 @@ else
+ HAVE_TCL_TRY
+@@ -11631,7 +11632,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11644 "configure"
-+#line 11633 "configure"
+-#line 11634 "configure"
++#line 11635 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -11747,7 +11736,7 @@ else
+@@ -11737,7 +11738,7 @@ else
    lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
    lt_status=$lt_dlunknown
    cat > conftest.$ac_ext <<_LT_EOF
--#line 11750 "configure"
-+#line 11739 "configure"
+-#line 11740 "configure"
++#line 11741 "configure"
  #include "confdefs.h"
  
  #if HAVE_DLFCN_H
-@@ -13697,6 +13686,9 @@ fi
+@@ -15047,6 +15048,9 @@ fi
  
  
  
@@ -280,9 +249,11 @@
  ac_config_files="$ac_config_files Makefile"
  
  ac_config_headers="$ac_config_headers config.h"
+Index: b/libctf/configure.ac
+===================================================================
 --- a/libctf/configure.ac
 +++ b/libctf/configure.ac
-@@ -290,6 +290,9 @@ fi
+@@ -295,6 +295,9 @@ fi
  AC_SUBST(VERSION_FLAGS)
  AC_SUBST(VERSION_FLAGS_NOBFD)
  
@@ -292,6 +263,8 @@
  AC_CONFIG_FILES(Makefile)
  AC_CONFIG_HEADERS(config.h)
  AC_OUTPUT
+Index: b/libctf/Makefile.am
+===================================================================
 --- a/libctf/Makefile.am
 +++ b/libctf/Makefile.am
 @@ -39,23 +39,23 @@ AM_CPPFLAGS = -D_GNU_SOURCE -I$(srcdir)
@@ -339,9 +312,11 @@
  # Setup the testing framework, if you have one
  EXPECT = expect
  RUNTEST = runtest
+Index: b/libctf/Makefile.in
+===================================================================
 --- a/libctf/Makefile.in
 +++ b/libctf/Makefile.in
-@@ -188,58 +188,82 @@ am__installdirs = "$(DESTDIR)$(libdir)"
+@@ -187,58 +187,82 @@ am__installdirs = "$(DESTDIR)$(libdir)"
  	"$(DESTDIR)$(includedir)"
  LTLIBRARIES = $(lib_LTLIBRARIES) $(noinst_LTLIBRARIES)
  am__DEPENDENCIES_1 =
@@ -470,7 +445,7 @@
  AM_V_P = $(am__v_P_@AM_V@)
  am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
  am__v_P_0 = false
-@@ -274,9 +298,10 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
+@@ -273,9 +297,10 @@ AM_V_CCLD = $(am__v_CCLD_@AM_V@)
  am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
  am__v_CCLD_0 = @echo "  CCLD    " $@;
  am__v_CCLD_1 = 
@@ -484,7 +459,7 @@
  AM_V_DVIPS = $(am__v_DVIPS_@AM_V@)
  am__v_DVIPS_ = $(am__v_DVIPS_@AM_DEFAULT_V@)
  am__v_DVIPS_0 = @echo "  DVIPS   " $@;
-@@ -389,6 +414,7 @@ CFLAGS = @CFLAGS@
+@@ -388,6 +413,7 @@ CFLAGS = @CFLAGS@
  CPP = @CPP@
  CPPFLAGS = @CPPFLAGS@
  CTF_LIBADD = @CTF_LIBADD@
@@ -492,7 +467,7 @@
  CYGPATH_W = @CYGPATH_W@
  DATADIRNAME = @DATADIRNAME@
  DEFS = @DEFS@
-@@ -537,17 +563,17 @@ BFDDIR = $(BASEDIR)/bfd
+@@ -536,17 +562,17 @@ BFDDIR = $(BASEDIR)/bfd
  INCDIR = $(srcdir)/../include
  AM_CPPFLAGS = -D_GNU_SOURCE -I$(srcdir) -I$(srcdir)/../include -I$(srcdir)/../bfd -I../bfd @INCINTL@
  AM_CFLAGS = -std=gnu99 @ac_libctf_warn_cflags@ @warn@ @c_warn@ @WARN_PEDANTIC@ @WERROR@ $(ZLIBINC)
@@ -515,7 +490,7 @@
  	ctf-string.c ctf-subr.c ctf-types.c ctf-util.c $(am__append_1)
  
  # @CTF_LIBADD@ appears here twice: once, to force libiberty to get searched before
-@@ -558,6 +584,14 @@ libctf_la_LIBADD = @CTF_LIBADD@ ../bfd/l
+@@ -557,6 +583,14 @@ libctf_la_LIBADD = @CTF_LIBADD@ ../bfd/l
  libctf_la_CPPFLAGS = $(AM_CPPFLAGS) -DNOBFD=0
  libctf_la_LDFLAGS = $(libctf_ldflags_nover) @VERSION_FLAGS@
  libctf_la_SOURCES = $(libctf_nobfd_la_SOURCES) ctf-open-bfd.c
@@ -529,8 +504,8 @@
 +libctf@CTF_SOVER_EXT@_la_SOURCES = $(COMMON_LIB_SOURCES) ctf-open-bfd.c
  RUNTEST = runtest
  RUNTESTFLAGS = 
- @TCL_TRY_TRUE@CC_FOR_TARGET = ` \
-@@ -682,11 +716,11 @@ clean-noinstLTLIBRARIES:
+ CC_FOR_TARGET = ` \
+@@ -680,11 +714,11 @@ clean-noinstLTLIBRARIES:
  	  rm -f $${locs}; \
  	}
  
@@ -546,7 +521,7 @@
  
  mostlyclean-compile:
  	-rm -f *.$(OBJEXT)
-@@ -694,43 +728,43 @@ mostlyclean-compile:
+@@ -692,43 +726,43 @@ mostlyclean-compile:
  distclean-compile:
  	-rm -f *.tab.c
  
@@ -627,7 +602,7 @@
  
  .c.o:
  @am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-@@ -753,264 +787,264 @@ distclean-compile:
+@@ -751,264 +785,264 @@ distclean-compile:
  @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
  @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
  

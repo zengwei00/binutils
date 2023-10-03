@@ -7,8 +7,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: @binutils_alt_triplet@
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Built-Using: ${Built-Using}
 Description: GNU binary utilities, for @target@ target
  This package provides GNU assembler, linker and binary utilities

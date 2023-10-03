@@ -1,5 +1,5 @@
 /* tc-i386.h -- Header file for tc-i386.c
-   Copyright (C) 1989-2022 Free Software Foundation, Inc.
+   Copyright (C) 1989-2023 Free Software Foundation, Inc.
 
    This file is part of GAS, the GNU Assembler.
 
@@ -78,14 +78,6 @@ extern unsigned long i386_mach (void);
 
 #ifndef ELF_TARGET_FORMAT32
 #define ELF_TARGET_FORMAT32	"elf32-x86-64"
-#endif
-
-#ifndef ELF_TARGET_L1OM_FORMAT
-#define ELF_TARGET_L1OM_FORMAT	"elf64-l1om"
-#endif
-
-#ifndef ELF_TARGET_K1OM_FORMAT
-#define ELF_TARGET_K1OM_FORMAT	"elf64-k1om"
 #endif
 
 #ifndef ELF_TARGET_IAMCU_FORMAT
@@ -196,6 +188,12 @@ extern operatorT i386_operator (const char *name, unsigned int operands, char *)
 extern int i386_need_index_operator (void);
 #define md_need_index_operator i386_need_index_operator
 
+#ifdef BFD64
+extern bool i386_record_operator
+  (operatorT, const expressionS *, const expressionS *);
+#define md_optimize_expr(l, o, r) i386_record_operator (o, l, r)
+#endif
+
 #define md_register_arithmetic 0
 
 extern const struct relax_type md_relax_table[];
@@ -215,13 +213,17 @@ if ((n)									\
     goto around;							\
   }
 
-#define MAX_MEM_FOR_RS_ALIGN_CODE  (alignment ? ((1 << alignment) - 1) : 1)
+#define MAX_MEM_FOR_RS_ALIGN_CODE \
+  (alignment ? ((size_t) 1 << alignment) - 1 : (size_t) 1)
 
 extern void i386_cons_align (int);
 #define md_cons_align(nbytes) i386_cons_align (nbytes)
 
 void i386_print_statistics (FILE *);
 #define tc_print_statistics i386_print_statistics
+
+void i386_md_end (void);
+#define md_end i386_md_end
 
 extern unsigned int i386_frag_max_var (fragS *);
 #define md_frag_max_var i386_frag_max_var
@@ -235,6 +237,8 @@ extern long i386_generic_table_relax_frag (segT, fragS *, long);
 enum processor_type
 {
   PROCESSOR_UNKNOWN,
+  PROCESSOR_GENERIC32,
+  PROCESSOR_GENERIC64,
   PROCESSOR_I386,
   PROCESSOR_I486,
   PROCESSOR_PENTIUM,
@@ -244,18 +248,16 @@ enum processor_type
   PROCESSOR_CORE,
   PROCESSOR_CORE2,
   PROCESSOR_COREI7,
-  PROCESSOR_L1OM,
-  PROCESSOR_K1OM,
   PROCESSOR_IAMCU,
   PROCESSOR_K6,
   PROCESSOR_ATHLON,
   PROCESSOR_K8,
-  PROCESSOR_GENERIC32,
-  PROCESSOR_GENERIC64,
   PROCESSOR_AMDFAM10,
   PROCESSOR_BD,
   PROCESSOR_ZNVER,
-  PROCESSOR_BT
+  PROCESSOR_BT,
+  /* Keep this last.  */
+  PROCESSOR_NONE
 };
 
 extern enum processor_type cpu_arch_tune;
@@ -366,6 +368,32 @@ extern bfd_vma x86_64_section_letter (int, const char **);
 #if defined (OBJ_ELF) || defined (OBJ_MAYBE_ELF)
 extern void x86_cleanup (void);
 #define md_cleanup() x86_cleanup ()
+
+/* Whether SFrame stack trace info is supported.  */
+extern bool x86_support_sframe_p (void);
+#define support_sframe_p x86_support_sframe_p
+
+/* The stack-pointer register number for SFrame stack trace info.  */
+extern unsigned int x86_sframe_cfa_sp_reg;
+#define SFRAME_CFA_SP_REG x86_sframe_cfa_sp_reg
+
+/* The frame-pointer register number for SFrame stack trace info.  */
+extern unsigned int x86_sframe_cfa_fp_reg;
+#define SFRAME_CFA_FP_REG x86_sframe_cfa_fp_reg
+
+/* Specify if RA tracking is needed.  */
+extern bool x86_sframe_ra_tracking_p (void);
+#define sframe_ra_tracking_p x86_sframe_ra_tracking_p
+
+/* Specify the fixed offset to recover RA from CFA.
+   (useful only when RA tracking is not needed).  */
+extern offsetT x86_sframe_cfa_ra_offset (void);
+#define sframe_cfa_ra_offset x86_sframe_cfa_ra_offset
+
+/* The abi/arch indentifier for SFrame.  */
+extern unsigned char x86_sframe_get_abi_arch (void);
+#define sframe_get_abi_arch x86_sframe_get_abi_arch
+
 #endif
 
 #ifdef TE_PE

@@ -1,5 +1,5 @@
 /* Parse options for the GNU linker.
-   Copyright (C) 1991-2022 Free Software Foundation, Inc.
+   Copyright (C) 1991-2023 Free Software Foundation, Inc.
 
    This file is part of the GNU Binutils.
 
@@ -130,6 +130,10 @@ static const struct ld_option ld_options[] =
     '\0', NULL, N_("Enable support of non-contiguous memory regions"), TWO_DASHES },
   { {"enable-non-contiguous-regions-warnings", no_argument, NULL, OPTION_NON_CONTIGUOUS_REGIONS_WARNINGS},
     '\0', NULL, N_("Enable warnings when --enable-non-contiguous-regions may cause unexpected behaviour"), TWO_DASHES },
+  { {"disable-linker-version", no_argument, NULL, OPTION_DISABLE_LINKER_VERSION},
+    '\0', NULL, N_("Disable the LINKER_VERSION linker script directive"), TWO_DASHES },
+  { {"enable-linker-version", no_argument, NULL, OPTION_ENABLE_LINKER_VERSION},
+    '\0', NULL, N_("Enable the LINKER_VERSION linker script directive"), TWO_DASHES },
   { {"EB", no_argument, NULL, OPTION_EB},
     '\0', NULL, N_("Link big-endian objects"), ONE_DASH },
   { {"EL", no_argument, NULL, OPTION_EL},
@@ -215,6 +219,12 @@ static const struct ld_option ld_options[] =
   { {"just-symbols", required_argument, NULL, 'R'},
     'R', N_("FILE"), N_("Just link symbols (if directory, same as --rpath)"),
     TWO_DASHES },
+
+  { {"remap-inputs-file", required_argument, NULL, OPTION_REMAP_INPUTS_FILE},
+    '\0', N_("FILE"), "Provide a FILE containing input remapings", TWO_DASHES },
+  { {"remap-inputs", required_argument, NULL, OPTION_REMAP_INPUTS},
+    '\0', N_("PATTERN=FILE"), "Remap input files matching PATTERN to FILE", TWO_DASHES },
+
   { {"strip-all", no_argument, NULL, 's'},
     's', NULL, N_("Strip all symbols"), TWO_DASHES },
   { {"strip-debug", no_argument, NULL, 'S'},
@@ -381,6 +391,9 @@ static const struct ld_option ld_options[] =
   { {"no-undefined", no_argument, NULL, OPTION_NO_UNDEFINED},
     '\0', NULL, N_("Do not allow unresolved references in object files"),
     TWO_DASHES },
+  { {"no-warnings", no_argument, NULL, OPTION_NO_WARNINGS},
+    'w', NULL, N_("Do not display any warning or error messages"),
+    TWO_DASHES },
   { {"allow-shlib-undefined", no_argument, NULL, OPTION_ALLOW_SHLIB_UNDEFINED},
     '\0', NULL, N_("Allow unresolved references in shared libraries"),
     TWO_DASHES },
@@ -396,6 +409,8 @@ static const struct ld_option ld_options[] =
      OPTION_ERROR_HANDLING_SCRIPT},
     '\0', N_("SCRIPT"), N_("Provide a script to help with undefined symbol errors"), TWO_DASHES},
 #endif
+  { {"undefined-version", no_argument, NULL, OPTION_UNDEFINED_VERSION},
+    '\0', NULL, N_("Allow undefined version"), EXACTLY_TWO_DASHES },
   { {"no-undefined-version", no_argument, NULL, OPTION_NO_UNDEFINED_VERSION},
     '\0', NULL, N_("Disallow undefined version"), TWO_DASHES },
   { {"default-symver", no_argument, NULL, OPTION_DEFAULT_SYMVER},
@@ -536,6 +551,14 @@ static const struct ld_option ld_options[] =
   { {"warn-constructors", no_argument, NULL, OPTION_WARN_CONSTRUCTORS},
     '\0', NULL, N_("Warn if global constructors/destructors are seen"),
     TWO_DASHES },
+  { {"warn-execstack", no_argument, NULL, OPTION_WARN_EXECSTACK},
+    '\0', NULL, N_("Warn when creating an executable stack"), TWO_DASHES },
+  { {"no-warn-execstack", no_argument, NULL, OPTION_NO_WARN_EXECSTACK},
+    '\0', NULL, N_("Do not warn when creating an executable stack"), TWO_DASHES },
+  { {"warn-rwx-segments", no_argument, NULL, OPTION_WARN_RWX_SEGMENTS},
+    '\0', NULL, N_("Warn when creating executable segments"), TWO_DASHES },
+  { {"no-warn-rwx-segments", no_argument, NULL, OPTION_NO_WARN_RWX_SEGMENTS},
+    '\0', NULL, N_("Do not warn when creating executable segments"), TWO_DASHES },
   { {"warn-multiple-gp", no_argument, NULL, OPTION_WARN_MULTIPLE_GP},
     '\0', NULL, N_("Warn if the multiple GP values are used"), TWO_DASHES },
   { {"warn-once", no_argument, NULL, OPTION_WARN_ONCE},
@@ -587,6 +610,12 @@ static const struct ld_option ld_options[] =
     TWO_DASHES },
   { {"no-print-map-discarded", no_argument, NULL, OPTION_NO_PRINT_MAP_DISCARDED},
     '\0', NULL, N_("Do not show discarded sections in map file output"),
+    TWO_DASHES },
+  { {"print-map-locals", no_argument, NULL, OPTION_PRINT_MAP_LOCALS},
+    '\0', NULL, N_("Show local symbols in map file output"),
+    TWO_DASHES },
+  { {"no-print-map-locals", no_argument, NULL, OPTION_NO_PRINT_MAP_LOCALS},
+    '\0', NULL, N_("Do not show local symbols in map file output (default)"),
     TWO_DASHES },
   { {"ctf-variables", no_argument, NULL, OPTION_CTF_VARIABLES},
     '\0', NULL, N_("Emit names and types of static variables in CTF"),
@@ -915,6 +944,20 @@ parse_args (unsigned argc, char **argv)
 	case OPTION_NON_CONTIGUOUS_REGIONS_WARNINGS:
 	  link_info.non_contiguous_regions_warnings = true;
 	  break;
+	case OPTION_WARN_EXECSTACK:
+	  link_info.warn_execstack = 1;
+	  break;
+	case OPTION_NO_WARN_EXECSTACK:
+	  link_info.warn_execstack = 0;
+	  break;
+	case OPTION_WARN_RWX_SEGMENTS:
+	  link_info.no_warn_rwx_segments = 0;
+	  link_info.user_warn_rwx_segments = 1;
+	  break;
+	case OPTION_NO_WARN_RWX_SEGMENTS:
+	  link_info.no_warn_rwx_segments = 1;
+	  link_info.user_warn_rwx_segments = 1;
+	  break;
 	case 'e':
 	  lang_add_entry (optarg, true);
 	  break;
@@ -1068,6 +1111,16 @@ parse_args (unsigned argc, char **argv)
 	  break;
 #endif
 
+	case OPTION_ENABLE_LINKER_VERSION:
+	  enable_linker_version = true;
+	  break;
+	case OPTION_DISABLE_LINKER_VERSION:
+	  enable_linker_version = false;
+	  break;
+
+	case OPTION_UNDEFINED_VERSION:
+	  link_info.allow_undefined_version = true;
+	  break;
 	case OPTION_NO_UNDEFINED_VERSION:
 	  link_info.allow_undefined_version = false;
 	  break;
@@ -1529,6 +1582,11 @@ parse_args (unsigned argc, char **argv)
 	case OPTION_NO_WARN_FATAL:
 	  config.fatal_warnings = false;
 	  break;
+	case OPTION_NO_WARNINGS:
+	case 'w':
+	  config.no_warnings = true;
+	  config.fatal_warnings = false;
+	  break;
 	case OPTION_WARN_MULTIPLE_GP:
 	  config.warn_multiple_gp = true;
 	  break;
@@ -1630,6 +1688,27 @@ parse_args (unsigned argc, char **argv)
 	  link_info.fini_function = optarg;
 	  break;
 
+	case OPTION_REMAP_INPUTS_FILE:
+	  if (! ldfile_add_remap_file (optarg))
+	    einfo (_("%F%P: failed to add remap file %s\n"), optarg);
+	  break;
+
+	case OPTION_REMAP_INPUTS:
+	  {
+	    char *optarg2 = strchr (optarg, '=');
+	    if (optarg2 == NULL)
+	      /* FIXME: Should we allow --remap-inputs=@myfile as a synonym
+		 for --remap-inputs-file=myfile ?  */
+	      einfo (_("%F%P: invalid argument to option --remap-inputs\n"));
+	    size_t len = optarg2 - optarg;
+	    char * pattern = xmalloc (len + 1);
+	    memcpy (pattern, optarg, len);
+	    pattern[len] = 0;
+	    ldfile_add_remap (pattern, optarg2 + 1);
+	    free (pattern);
+	  }
+	  break;
+
 	case OPTION_REDUCE_MEMORY_OVERHEADS:
 	  link_info.reduce_memory_overheads = true;
 	  if (config.hash_table_size == 0)
@@ -1700,6 +1779,14 @@ parse_args (unsigned argc, char **argv)
 
 	case OPTION_PRINT_MAP_DISCARDED:
 	  config.print_map_discarded = true;
+	  break;
+
+	case OPTION_NO_PRINT_MAP_LOCALS:
+	  config.print_map_locals = false;
+	  break;
+
+	case OPTION_PRINT_MAP_LOCALS:
+	  config.print_map_locals = true;
 	  break;
 
 	case OPTION_DEPENDENCY_FILE:
@@ -1910,6 +1997,15 @@ parse_args (unsigned argc, char **argv)
 	link_info.dynamic_data = true;
 	break;
       }
+
+  /* -z nosectionheader implies --strip-all.  */
+  if (config.no_section_header)
+    {
+      if (bfd_link_relocatable (&link_info))
+	einfo (_("%F%P: -r and -z nosectionheader may not be used together\n"));
+
+      link_info.strip = strip_all;
+    }
 
   if (!bfd_link_dll (&link_info))
     {
@@ -2124,15 +2220,13 @@ elf_static_list_options (FILE *file)
   fprintf (file, _("\
   --build-id[=STYLE]          Generate build ID note\n"));
   fprintf (file, _("\
-  --compress-debug-sections=[none|zlib|zlib-gnu|zlib-gabi]\n\
-                              Compress DWARF debug sections using zlib\n"));
-#ifdef DEFAULT_FLAG_COMPRESS_DEBUG
+  --package-metadata[=JSON]   Generate package metadata note\n"));
   fprintf (file, _("\
-                                Default: zlib-gabi\n"));
-#else
+  --compress-debug-sections=[none|zlib|zlib-gnu|zlib-gabi|zstd]\n\
+			      Compress DWARF debug sections\n"));
   fprintf (file, _("\
-                                Default: none\n"));
-#endif
+                                Default: %s\n"),
+	   bfd_get_compression_algorithm_name (config.compress_debug));
   fprintf (file, _("\
   -z common-page-size=SIZE    Set common page size to SIZE\n"));
   fprintf (file, _("\
@@ -2149,6 +2243,31 @@ elf_static_list_options (FILE *file)
   -z execstack                Mark executable as requiring executable stack\n"));
   fprintf (file, _("\
   -z noexecstack              Mark executable as not requiring executable stack\n"));
+#if DEFAULT_LD_WARN_EXECSTACK == 1
+  fprintf (file, _("\
+  --warn-execstack            Generate a warning if the stack is executable (default)\n"));
+#else
+  fprintf (file, _("\
+  --warn-execstack            Generate a warning if the stack is executable\n"));
+#endif
+#if DEFAULT_LD_WARN_EXECSTACK == 0
+  fprintf (file, _("\
+  --no-warn-execstack         Do not generate a warning if the stack is executable (default)\n"));
+#else
+  fprintf (file, _("\
+  --no-warn-execstack         Do not generate a warning if the stack is executable\n"));
+#endif
+#if DEFAULT_LD_WARN_RWX_SEGMENTS
+  fprintf (file, _("\
+  --warn-rwx-segments         Generate a warning if a LOAD segment has RWX permissions (default)\n"));
+  fprintf (file, _("\
+  --no-warn-rwx-segments      Do not generate a warning if a LOAD segments has RWX permissions\n"));
+#else
+  fprintf (file, _("\
+  --warn-rwx-segments         Generate a warning if a LOAD segment has RWX permissions\n"));
+  fprintf (file, _("\
+  --no-warn-rwx-segments      Do not generate a warning if a LOAD segments has RWX permissions (default)\n"));
+#endif
   fprintf (file, _("\
   -z unique-symbol            Avoid duplicated local symbol names\n"));
   fprintf (file, _("\
@@ -2162,6 +2281,10 @@ elf_static_list_options (FILE *file)
   fprintf (file, _("\
   -z start-stop-visibility=V  Set visibility of built-in __start/__stop symbols\n\
                                 to DEFAULT, PROTECTED, HIDDEN or INTERNAL\n"));
+  fprintf (file, _("\
+  -z sectionheader            Generate section header (default)\n"));
+  fprintf (file, _("\
+  -z nosectionheader          Do not generate section header\n"));
 }
 
 static void

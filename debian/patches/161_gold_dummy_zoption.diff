@@ -13,7 +13,7 @@
  	usage(_("unknown -z option"), dash_z_arg);
 --- a/gold/options.h
 +++ b/gold/options.h
-@@ -1409,6 +1409,9 @@ class General_options
+@@ -1417,6 +1417,9 @@ class General_options
  		    options::TWO_DASHES, '\0',
  		    N_("Report unresolved symbols as errors"),
  		    NULL, true);

@@ -1,12 +1,13 @@
 Source: binutils
 Section: devel
 Priority: optional
-Maintainer: Deepin Developer <deepin-dev@deepin.org>
-Uploaders: Deepin Packages Builder <packages@deepin.org>
-Standards-Version: 4.6.0
+Maintainer: Matthias Klose <doko@debian.org>
+Uploaders: James Troup <binutils@elmo.tasta.io>
+Standards-Version: 4.6.2
 Build-Depends: autoconf (>= 2.64), dpkg-dev (>= 1.19.0.5),
   bison, flex, gettext, texinfo, dejagnu, quilt, chrpath, dwz, debugedit (>= 4.16),
-  python3:any, file, xz-utils, lsb-release, zlib1g-dev, procps,
+  python3:any, file, xz-utils, lsb-release, zlib1g-dev, procps, help2man,
+  libjansson-dev, pkg-config, libzstd-dev,
   g++-aarch64-linux-gnu [amd64 i386 x32] <!nocheck>,
   g++-arm-linux-gnueabi [amd64 arm64 i386 x32] <!nocheck>,
   g++-arm-linux-gnueabihf [amd64 arm64 i386 x32] <!nocheck>,
@@ -26,8 +27,8 @@ Build-Depends: autoconf (>= 2.64), dpkg-dev (>= 1.19.0.5),
 Build-Conflicts: libelf-dev
 Rules-Requires-Root: no
 Homepage: https://www.gnu.org/software/binutils/
-#Vcs-Browser
-#Vcs-Git
+Vcs-Browser: https://salsa.debian.org/toolchain-team/binutils/tree/binutils-2.41
+Vcs-Git: https://salsa.debian.org/toolchain-team/binutils.git
 XS-Testsuite: autopkgtest
 
 Package: binutils-for-host
@@ -61,7 +62,7 @@ Depends: ${shlibs:Depends}, binutils-common (= ${binary:Version}),
 Conflicts: modutils (<< 2.4.19-1), ${extraConflicts},
   binutils-multiarch (<< 2.27-8)
 Provides: elf-binutils, ${gold:Provides}
-Suggests: binutils-doc (>= ${source:Version})
+Suggests: binutils-doc (>= ${source:Version}), gprofng-gui
 Description: GNU assembler, linker and binary utilities
  The programs in this package are used to assemble, link and manipulate
  binary and object files.  They may be used in conjunction with a compiler
@@ -91,7 +92,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends}, libbinutils (= ${binary:Version})
 Description: Compact C Type Format library (runtime, BFD dependency)
- This package includes the libctf-nobfd shared library.  The Compact C Type
+ This package includes the libctf shared library.  The Compact C Type
  Format (CTF) is a way of representing information about a binary program
 
 Package: libctf0-dbg
@@ -100,8 +101,55 @@ Architecture: any
 Multi-Arch: same
 Depends: libctf0 (= ${binary:Version})
 Description: Compact C Type Format library (debug symbols, BFD dependency)
- This package includes the libctf-nobfd shared library.  The Compact C Type
+ This package includes the libctf shared library.  The Compact C Type
  Format (CTF) is a way of representing information about a binary program
+
+Package: libgprofng0
+Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends}, libbinutils (= ${binary:Version})
+Description: GNU Next Generation profiler (runtime library)
+ Gprofng is the GNU Next Generation profiler for analyzing the performance
+ of Linux applications.  Gprofng allows you to:
+ .
+  - Profile C / C++ / Java / Scala applications without needing to recompile
+  - Profile multi-threaded applications
+  - Analyze and compare multiple experiments
+  - Use time-based sampling and / or hardware event counters
+ .
+ This package includes the libgprofng shared library.
+
+Package: libgprofng0-dbg
+Section: debug
+Architecture: any
+Multi-Arch: same
+Depends: libgprofng0 (= ${binary:Version})
+Description: GNU Next Generation profiler (debug symbols)
+ Gprofng is the GNU Next Generation profiler for analyzing the performance
+ of Linux applications.
+ .
+ This package includes the debug symbols for the libgprofng shared library.
+
+Package: libsframe1
+Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends}
+Description: Library to handle the SFrame format (runtime library)
+ SFrame stands for Simple Frame format.  SFrame format keeps track
+ of the minimal necessary information needed for generating stack traces.
+ .
+ This package includes the libsframe shared library.
+
+Package: libsframe1-dbg
+Section: debug
+Architecture: any
+Multi-Arch: same
+Depends: libsframe1 (= ${binary:Version})
+Description: Library to handle the SFrame format (debug symbols)
+ SFrame stands for Simple Frame format.  SFrame format keeps track
+ of the minimal necessary information needed for generating stack traces.
+ .
+ This package includes the debug symbols for the libsframe shared library.
 
 Package: libbinutils
 Architecture: any
@@ -124,7 +172,8 @@ Package: binutils-dev
 Architecture: any
 Priority: optional
 Depends: binutils (= ${binary:Version}), libbinutils (= ${binary:Version}),
-  libctf0 (= ${binary:Version}), libctf-nobfd0 (= ${binary:Version})
+  libctf0 (= ${binary:Version}), libctf-nobfd0 (= ${binary:Version}),
+  libsframe1 (= ${binary:Version}),
 Conflicts: libbfd-dev
 Provides: libbfd-dev
 Replaces: libbfd-dev, libc5-dev
@@ -209,7 +258,8 @@ Package: binutils-source
 Architecture: all
 Multi-Arch: foreign
 Priority: optional
-Depends: texinfo, zlib1g-dev, make, python3
+Depends: texinfo, zlib1g-dev, make, python3,
+  libjansson-dev, pkg-config, libzstd-dev,
 Description: GNU assembler, linker and binary utilities (source)
  This package contains the sources and patches which are needed to
  build binutils.
@@ -217,8 +267,8 @@ Description: GNU assembler, linker and binary utilities (source)
 Package: binutils-common
 Architecture: any
 Multi-Arch: same
-Breaks: binutils (<< 2.29.1-3.1~)
-Replaces: binutils (<< 2.29.1-3.1~)
+Breaks: binutils (<< 2.38.50.20220527-2), binutils-multiarch (<< 2.38.50.20220527-2)
+Replaces: binutils (<< 2.38.50.20220527-2), binutils-multiarch (<< 2.38.50.20220527-2)
 Description: Common files for the GNU assembler, linker and binary utilities
  This package contains the localization files used by binutils packages for
  various target architectures and parts of the binutils documentation. It is
@@ -232,8 +282,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for x86-64-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the x86-64-linux-gnu target.
@@ -258,8 +308,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: binutils-i586-linux-gnu
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for i686-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the i686-linux-gnu target.
@@ -284,8 +334,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for aarch64-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the aarch64-linux-gnu target.
@@ -310,8 +360,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for arm-linux-gnueabihf target
  This package provides GNU assembler, linker and binary utilities
  for the arm-linux-gnueabihf target.
@@ -336,8 +386,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for arm-linux-gnueabi target
  This package provides GNU assembler, linker and binary utilities
  for the arm-linux-gnueabi target.
@@ -362,8 +412,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for powerpc64le-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the powerpc64le-linux-gnu target.
@@ -388,8 +438,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for s390x-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the s390x-linux-gnu target.
@@ -408,14 +458,14 @@ Description: GNU binary utilities, for s390x-linux-gnu target (debug symbols)
 
 Package: binutils-alpha-linux-gnu
 Priority: optional
-Architecture: alpha amd64 i386 x32
+Architecture: alpha amd64 i386 x32 arm64 ppc64el
 Multi-Arch: allowed
 Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for alpha-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the alpha-linux-gnu target.
@@ -426,22 +476,48 @@ Description: GNU binary utilities, for alpha-linux-gnu target
 Package: binutils-alpha-linux-gnu-dbg
 Section: debug
 Priority: optional
-Architecture: alpha amd64 i386 x32
+Architecture: alpha amd64 i386 x32 arm64 ppc64el
 Multi-Arch: foreign
 Depends: binutils-alpha-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for alpha-linux-gnu target (debug symbols)
  This package provides debug symbols for binutils-alpha-linux-gnu.
 
-Package: binutils-hppa-linux-gnu
+Package: binutils-arc-linux-gnu
 Priority: optional
-Architecture: hppa amd64 i386 x32
+Architecture: arc amd64 i386 x32 arm64 ppc64el
 Multi-Arch: allowed
 Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Description: GNU binary utilities, for arc-linux-gnu target
+ This package provides GNU assembler, linker and binary utilities
+ for the arc-linux-gnu target.
+ .
+ You don't need this package unless you plan to cross-compile programs
+ for arc-linux-gnu and arc-linux-gnu is not your native platform.
+
+Package: binutils-arc-linux-gnu-dbg
+Section: debug
+Priority: optional
+Architecture: arc amd64 i386 x32 arm64 ppc64el
+Multi-Arch: foreign
+Depends: binutils-arc-linux-gnu (= ${binary:Version})
+Description: GNU binary utilities, for arc-linux-gnu target (debug symbols)
+ This package provides debug symbols for binutils-arc-linux-gnu.
+
+Package: binutils-hppa-linux-gnu
+Priority: optional
+Architecture: hppa amd64 i386 x32 arm64 ppc64el
+Multi-Arch: allowed
+Depends: binutils-common (= ${binary:Version}),
+  ${shlibs:Depends}, ${extraDepends}
+Suggests: binutils-doc (= ${source:Version})
+Provides: 
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for hppa-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the hppa-linux-gnu target.
@@ -452,7 +528,7 @@ Description: GNU binary utilities, for hppa-linux-gnu target
 Package: binutils-hppa-linux-gnu-dbg
 Section: debug
 Priority: optional
-Architecture: hppa amd64 i386 x32
+Architecture: hppa amd64 i386 x32 arm64 ppc64el
 Multi-Arch: foreign
 Depends: binutils-hppa-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for hppa-linux-gnu target (debug symbols)
@@ -466,8 +542,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for ia64-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the ia64-linux-gnu target.
@@ -486,14 +562,14 @@ Description: GNU binary utilities, for ia64-linux-gnu target (debug symbols)
 
 Package: binutils-m68k-linux-gnu
 Priority: optional
-Architecture: m68k amd64 i386 x32
+Architecture: m68k amd64 i386 x32 arm64 ppc64el
 Multi-Arch: allowed
 Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for m68k-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the m68k-linux-gnu target.
@@ -504,7 +580,7 @@ Description: GNU binary utilities, for m68k-linux-gnu target
 Package: binutils-m68k-linux-gnu-dbg
 Section: debug
 Priority: optional
-Architecture: m68k amd64 i386 x32
+Architecture: m68k amd64 i386 x32 arm64 ppc64el
 Multi-Arch: foreign
 Depends: binutils-m68k-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for m68k-linux-gnu target (debug symbols)
@@ -512,14 +588,14 @@ Description: GNU binary utilities, for m68k-linux-gnu target (debug symbols)
 
 Package: binutils-powerpc-linux-gnu
 Priority: optional
-Architecture: powerpc amd64 i386 x32 ppc64el
+Architecture: powerpc amd64 i386 x32 arm64 ppc64el
 Multi-Arch: allowed
 Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for powerpc-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the powerpc-linux-gnu target.
@@ -530,7 +606,7 @@ Description: GNU binary utilities, for powerpc-linux-gnu target
 Package: binutils-powerpc-linux-gnu-dbg
 Section: debug
 Priority: optional
-Architecture: powerpc amd64 i386 x32 ppc64el
+Architecture: powerpc amd64 i386 x32 arm64 ppc64el
 Multi-Arch: foreign
 Depends: binutils-powerpc-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for powerpc-linux-gnu target (debug symbols)
@@ -544,8 +620,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for powerpc64-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the powerpc64-linux-gnu target.
@@ -570,8 +646,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for riscv64-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the riscv64-linux-gnu target.
@@ -590,14 +666,14 @@ Description: GNU binary utilities, for riscv64-linux-gnu target (debug symbols)
 
 Package: binutils-sh4-linux-gnu
 Priority: optional
-Architecture: sh4 amd64 i386 x32
+Architecture: sh4 amd64 i386 x32 arm64 ppc64el
 Multi-Arch: allowed
 Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for sh4-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the sh4-linux-gnu target.
@@ -608,7 +684,7 @@ Description: GNU binary utilities, for sh4-linux-gnu target
 Package: binutils-sh4-linux-gnu-dbg
 Section: debug
 Priority: optional
-Architecture: sh4 amd64 i386 x32
+Architecture: sh4 amd64 i386 x32 arm64 ppc64el
 Multi-Arch: foreign
 Depends: binutils-sh4-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for sh4-linux-gnu target (debug symbols)
@@ -616,14 +692,14 @@ Description: GNU binary utilities, for sh4-linux-gnu target (debug symbols)
 
 Package: binutils-sparc64-linux-gnu
 Priority: optional
-Architecture: sparc64 amd64 i386 x32
+Architecture: sparc64 amd64 i386 x32 arm64 ppc64el
 Multi-Arch: allowed
 Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for sparc64-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the sparc64-linux-gnu target.
@@ -634,7 +710,7 @@ Description: GNU binary utilities, for sparc64-linux-gnu target
 Package: binutils-sparc64-linux-gnu-dbg
 Section: debug
 Priority: optional
-Architecture: sparc64 amd64 i386 x32
+Architecture: sparc64 amd64 i386 x32 arm64 ppc64el
 Multi-Arch: foreign
 Depends: binutils-sparc64-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for sparc64-linux-gnu target (debug symbols)
@@ -648,8 +724,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for x86-64-linux-gnux32 target
  This package provides GNU assembler, linker and binary utilities
  for the x86-64-linux-gnux32 target.
@@ -666,6 +742,32 @@ Depends: binutils-x86-64-linux-gnux32 (= ${binary:Version})
 Description: GNU binary utilities, for x86-64-linux-gnux32 target (debug symbols)
  This package provides debug symbols for binutils-x86-64-linux-gnux32.
 
+Package: binutils-x86-64-gnu
+Priority: optional
+Architecture: hurd-amd64 amd64 i386 x32
+Multi-Arch: allowed
+Depends: binutils-common (= ${binary:Version}),
+  ${shlibs:Depends}, ${extraDepends}
+Suggests: binutils-doc (= ${source:Version})
+Provides: 
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Description: GNU binary utilities, for x86-64-gnu target
+ This package provides GNU assembler, linker and binary utilities
+ for the x86-64-gnu target.
+ .
+ You don't need this package unless you plan to cross-compile programs
+ for x86-64-gnu and x86-64-gnu is not your native platform.
+
+Package: binutils-x86-64-gnu-dbg
+Section: debug
+Priority: optional
+Architecture: hurd-amd64 amd64 i386 x32
+Multi-Arch: foreign
+Depends: binutils-x86-64-gnu (= ${binary:Version})
+Description: GNU binary utilities, for x86-64-gnu target (debug symbols)
+ This package provides debug symbols for binutils-x86-64-gnu.
+
 Package: binutils-i686-gnu
 Priority: optional
 Architecture: hurd-i386 amd64 i386 x32
@@ -674,8 +776,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: binutils-i586-gnu
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for i686-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the i686-gnu target.
@@ -700,8 +802,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for x86-64-kfreebsd-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the x86-64-kfreebsd-gnu target.
@@ -726,8 +828,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: binutils-i586-kfreebsd-gnu
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for i686-kfreebsd-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the i686-kfreebsd-gnu target.
@@ -752,8 +854,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mips-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the mips-linux-gnu target.
@@ -778,8 +880,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mipsel-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the mipsel-linux-gnu target.
@@ -804,8 +906,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mips64-linux-gnuabi64 target
  This package provides GNU assembler, linker and binary utilities
  for the mips64-linux-gnuabi64 target.
@@ -830,8 +932,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mips64el-linux-gnuabi64 target
  This package provides GNU assembler, linker and binary utilities
  for the mips64el-linux-gnuabi64 target.
@@ -856,8 +958,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mips64-linux-gnuabin32 target
  This package provides GNU assembler, linker and binary utilities
  for the mips64-linux-gnuabin32 target.
@@ -882,8 +984,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mips64el-linux-gnuabin32 target
  This package provides GNU assembler, linker and binary utilities
  for the mips64el-linux-gnuabin32 target.
@@ -908,8 +1010,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mipsisa64r6-linux-gnuabin32 target
  This package provides GNU assembler, linker and binary utilities
  for the mipsisa64r6-linux-gnuabin32 target.
@@ -934,8 +1036,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mipsisa64r6el-linux-gnuabin32 target
  This package provides GNU assembler, linker and binary utilities
  for the mipsisa64r6el-linux-gnuabin32 target.
@@ -960,8 +1062,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mipsisa32r6-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the mipsisa32r6-linux-gnu target.
@@ -986,8 +1088,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mipsisa32r6el-linux-gnu target
  This package provides GNU assembler, linker and binary utilities
  for the mipsisa32r6el-linux-gnu target.
@@ -1012,8 +1114,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mipsisa64r6-linux-gnuabi64 target
  This package provides GNU assembler, linker and binary utilities
  for the mipsisa64r6-linux-gnuabi64 target.
@@ -1038,8 +1140,8 @@ Depends: binutils-common (= ${binary:Version}),
   ${shlibs:Depends}, ${extraDepends}
 Suggests: binutils-doc (= ${source:Version})
 Provides: 
-Breaks: binutils (<< 2.29-6)
-Replaces: binutils (<< 2.29-6)
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
 Description: GNU binary utilities, for mipsisa64r6el-linux-gnuabi64 target
  This package provides GNU assembler, linker and binary utilities
  for the mipsisa64r6el-linux-gnuabi64 target.

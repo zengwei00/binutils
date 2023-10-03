@@ -2,7 +2,7 @@
 
 --- a/gold/options.h
 +++ b/gold/options.h
-@@ -1012,7 +1012,8 @@ class General_options
+@@ -1016,7 +1016,8 @@ class General_options
  
    // k
  

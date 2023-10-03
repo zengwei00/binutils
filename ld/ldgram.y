@@ -1,5 +1,5 @@
 /* A YACC grammar to parse a superset of the AT&T linker scripting language.
-   Copyright (C) 1991-2022 Free Software Foundation, Inc.
+   Copyright (C) 1991-2023 Free Software Foundation, Inc.
    Written by Steve Chamberlain of Cygnus Support (steve@cygnus.com).
 
    This file is part of the GNU Binutils.
@@ -47,6 +47,7 @@
 #endif
 
 static enum section_type sectype;
+static etree_type *sectype_value;
 static lang_memory_region_type *region;
 
 static bool ldgram_had_keep = false;
@@ -124,8 +125,8 @@ static int error_index;
 %right UNARY
 %token END
 %left <token> '('
-%token <token> ALIGN_K BLOCK BIND QUAD SQUAD LONG SHORT BYTE
-%token SECTIONS PHDRS INSERT_K AFTER BEFORE
+%token <token> ALIGN_K BLOCK BIND QUAD SQUAD LONG SHORT BYTE ASCIZ
+%token SECTIONS PHDRS INSERT_K AFTER BEFORE LINKER_VERSION
 %token DATA_SEGMENT_ALIGN DATA_SEGMENT_RELRO_END DATA_SEGMENT_END
 %token SORT_BY_NAME SORT_BY_ALIGNMENT SORT_NONE
 %token SORT_BY_INIT_PRIORITY
@@ -139,6 +140,7 @@ static int error_index;
 %token LD_FEATURE
 %token NOLOAD DSECT COPY INFO OVERLAY
 %token READONLY
+%token TYPE
 %token DEFINED TARGET_K SEARCH_DIR MAP ENTRY
 %token <integer> NEXT
 %token SIZEOF ALIGNOF ADDR LOADADDR MAX_K MIN_K
@@ -666,10 +668,17 @@ statement:
 		{
 		  lang_add_data ((int) $1, $3);
 		}
-
+	| ASCIZ NAME
+		{
+		  lang_add_string ($2);
+		}
 	| FILL '(' fill_exp ')'
 		{
 		  lang_add_fill ($3);
+		}
+	| LINKER_VERSION
+		{
+		  lang_add_version_string ();
 		}
 	| ASSERT_K
 		{ ldlex_expression (); }
@@ -711,7 +720,7 @@ length:
 fill_exp:
 	mustbe_exp
 		{
-		  $$ = exp_get_fill ($1, 0, "fill value");
+		  $$ = exp_get_fill ($1, 0, _("fill value"));
 		}
 	;
 
@@ -1058,9 +1067,8 @@ section:	NAME
 			{
 			  ldlex_popstate ();
 			  ldlex_wild ();
-			  lang_enter_output_section_statement($1, $3, sectype,
-							      $5, $7, $4,
-							      $8, $6);
+			  lang_enter_output_section_statement ($1, $3, sectype,
+					sectype_value, $5, $7, $4, $8, $6);
 			}
 		'{'
 		statement_list_opt
@@ -1130,8 +1138,10 @@ type:
 	|  COPY    { sectype = noalloc_section; }
 	|  INFO    { sectype = noalloc_section; }
 	|  OVERLAY { sectype = noalloc_section; }
+        |  READONLY '(' TYPE '=' exp ')' { sectype = typed_readonly_section; sectype_value = $5; }
 	|  READONLY { sectype = readonly_section; }
-	;
+	|  TYPE '=' exp { sectype = type_section; sectype_value = $3; }
+        ;
 
 atype:
 		'(' type ')'
@@ -1502,7 +1512,7 @@ yyerror(arg)
     einfo (_("%P:%s: file format not recognized; treating as linker script\n"),
 	   ldlex_filename ());
   if (error_index > 0 && error_index < ERROR_NAME_MAX)
-    einfo ("%F%P:%pS: %s in %s\n", NULL, arg, error_names[error_index - 1]);
+    einfo (_("%F%P:%pS: %s in %s\n"), NULL, arg, error_names[error_index - 1]);
   else
     einfo ("%F%P:%pS: %s\n", NULL, arg);
 }

@@ -2,7 +2,7 @@
 
 %{
 
-/* Copyright (C) 1991-2022 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
    Written by Steve Chamberlain of Cygnus Support.
 
    This file is part of the GNU Binutils.
@@ -309,6 +309,8 @@ V_IDENTIFIER [*?.$_a-zA-Z\[\]\-\!\^\\]([*?.$_a-zA-Z0-9\[\]\-\!\^\\]|::)*
 <WILD>"LONG"				{ RTOKEN(LONG); }
 <WILD>"SHORT"				{ RTOKEN(SHORT); }
 <WILD>"BYTE"				{ RTOKEN(BYTE); }
+<WILD>"ASCIZ"				{ RTOKEN(ASCIZ); }
+<WILD>"LINKER_VERSION"			{ RTOKEN(LINKER_VERSION); }
 <SCRIPT>"NOFLOAT"			{ RTOKEN(NOFLOAT); }
 <SCRIPT,EXPRESSION>"NOCROSSREFS"	{ RTOKEN(NOCROSSREFS); }
 <SCRIPT,EXPRESSION>"NOCROSSREFS_TO"	{ RTOKEN(NOCROSSREFS_TO); }
@@ -323,6 +325,7 @@ V_IDENTIFIER [*?.$_a-zA-Z\[\]\-\!\^\\]([*?.$_a-zA-Z0-9\[\]\-\!\^\\]|::)*
 <EXPRESSION>"DSECT"			{ RTOKEN(DSECT); }
 <EXPRESSION>"COPY"			{ RTOKEN(COPY); }
 <EXPRESSION>"INFO"			{ RTOKEN(INFO); }
+<EXPRESSION>"TYPE"			{ RTOKEN(TYPE); }
 <SCRIPT,EXPRESSION>"ONLY_IF_RO"		{ RTOKEN(ONLY_IF_RO); }
 <SCRIPT,EXPRESSION>"ONLY_IF_RW"		{ RTOKEN(ONLY_IF_RW); }
 <SCRIPT,EXPRESSION>"SPECIAL"		{ RTOKEN(SPECIAL); }
@@ -486,8 +489,8 @@ V_IDENTIFIER [*?.$_a-zA-Z\[\]\-\!\^\\]([*?.$_a-zA-Z0-9\[\]\-\!\^\\]|::)*
   return END;
 }
 
-<SCRIPT,WILD,MRI,VERS_START,VERS_SCRIPT,VERS_NODE>.	lex_warn_invalid (" in script", yytext);
-<EXPRESSION>.	lex_warn_invalid (" in expression", yytext);
+<SCRIPT,WILD,MRI,VERS_START,VERS_SCRIPT,VERS_NODE>.	lex_warn_invalid (_(" in script"), yytext);
+<EXPRESSION>.	lex_warn_invalid (_(" in expression"), yytext);
 
 %%
 

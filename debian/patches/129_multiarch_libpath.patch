@@ -10,7 +10,7 @@
  DLOPEN_LIBS
  CXXCPP
  HAVE_NO_USE_LINKER_PLUGIN_FALSE
-@@ -10310,6 +10311,14 @@ $as_echo "#define HAVE_LC_MESSAGES 1" >>
+@@ -10854,6 +10855,14 @@ $as_echo "#define HAVE_LC_MESSAGES 1" >>
    fi
  
  
@@ -27,7 +27,7 @@
  $as_echo_n "checking whether to enable maintainer-specific portions of Makefiles... " >&6; }
 --- a/gold/configure.ac
 +++ b/gold/configure.ac
-@@ -706,6 +706,14 @@ AC_CHECK_HEADERS(locale.h)
+@@ -734,6 +734,14 @@ AC_CHECK_HEADERS(locale.h)
  AC_CHECK_FUNCS(setlocale)
  AM_LC_MESSAGES
  
@@ -54,7 +54,7 @@
  LIBIBERTY = ../libiberty/libiberty.a
 --- a/gold/Makefile.in
 +++ b/gold/Makefile.in
-@@ -674,6 +674,7 @@ AM_CPPFLAGS = \
+@@ -684,6 +684,7 @@ AM_CPPFLAGS = \
  	-I$(srcdir) -I$(srcdir)/../include -I$(srcdir)/../elfcpp \
  	-DLOCALEDIR="\"$(datadir)/locale\"" \
  	-DBINDIR="\"$(bindir)\"" -DTOOLBINDIR="\"$(tooldir)/bin\"" \

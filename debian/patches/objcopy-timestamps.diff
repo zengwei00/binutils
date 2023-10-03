@@ -1,0 +1,96 @@
+
+bfd/
+2023-07-24  Johannes Schauer Marin Rodrigues  <josch@debian.org>
+
+	* peXXigen.c (_bfd_XXi_only_swap_filehdr_out): If inserting a
+	timestamp, use the value held in the SOURCE_DATE_EPOCH environment
+	variable, if it is defined.
+
+binutils/
+2023-07-24  Johannes Schauer Marin Rodrigues  <josch@debian.org>
+
+	* doc/binutils.texi (objcopy): Document change in behaviour of
+	objcopy's --preserve-dates command line option.
+
+ld/
+2023-07-24  Johannes Schauer Marin Rodrigues  <josch@debian.org>
+
+	* pe-dll.c (fill_edata): If inserting a timestamp, use the value
+	held in the SOURCE_DATE_EPOCH environment variable, if it is
+	defined.
+	* ld.texi (--insert-timestamp): Document change in behaviour.
+
+--- a/bfd/peXXigen.c
++++ b/bfd/peXXigen.c
+@@ -838,7 +838,20 @@ _bfd_XXi_only_swap_filehdr_out (bfd * abfd, void * in, void * out)
+   /* Use a real timestamp by default, unless the no-insert-timestamp
+      option was chosen.  */
+   if ((pe_data (abfd)->timestamp) == -1)
+-    H_PUT_32 (abfd, time (0), filehdr_out->f_timdat);
++    {
++      time_t now;
++      char *source_date_epoch;
++
++      /* If the SOURCE_DATE_EPOCH environment variable is
++	 defined then use that as the time, otherwise use
++	 the current time.  */
++      source_date_epoch = getenv ("SOURCE_DATE_EPOCH");
++      if (source_date_epoch)
++	now = (time_t) strtoll (source_date_epoch, NULL, 10);
++      else
++	now = time (NULL);
++      H_PUT_32 (abfd, now, filehdr_out->f_timdat);
++    }
+   else
+     H_PUT_32 (abfd, pe_data (abfd)->timestamp, filehdr_out->f_timdat);
+ 
+--- a/binutils/doc/binutils.texi
++++ b/binutils/doc/binutils.texi
+@@ -1626,6 +1626,11 @@ commands.  If the input was '12345678' then the outputs would be
+ Set the access and modification dates of the output file to be the same
+ as those of the input file.
+ 
++This option also copies the date stored in a PE format file's header,
++unless the SOURCE_DATE_EPOCH environment variable is defined.  If it
++is defined then this variable will be used as the date stored in the
++header, interpreted as the number of seconds since the Unix epoch.
++
+ @item -D
+ @itemx --enable-deterministic-archives
+ @cindex deterministic archives
+--- a/ld/ld.texi
++++ b/ld/ld.texi
+@@ -3571,6 +3571,11 @@ can be used to insert a zero value for the timestamp, this ensuring
+ that binaries produced from identical sources will compare
+ identically.
+ 
++If @option{--insert-timestamp} is active then the time inserted is
++either the time that the linking takes place or, if the
++@code{SOURCE_DATE_EPOCH} environment variable is defined, the number
++of seconds since Unix epoch as specified by that variable.
++
+ @kindex --enable-reloc-section
+ @item --enable-reloc-section
+ @itemx --disable-reloc-section
+--- a/ld/pe-dll.c
++++ b/ld/pe-dll.c
+@@ -1231,7 +1231,18 @@ fill_edata (bfd *abfd, struct bfd_link_info *info ATTRIBUTE_UNUSED)
+   memset (edata_d, 0, edata_sz);
+ 
+   if (pe_data (abfd)->timestamp == -1)
+-    H_PUT_32 (abfd, time (0), edata_d + 4);
++    {
++      time_t now;
++      char *source_date_epoch;
++
++      source_date_epoch = getenv ("SOURCE_DATE_EPOCH");
++      if (source_date_epoch)
++	now = (time_t) strtoll (source_date_epoch, NULL, 10);
++      else
++	now = time (NULL);
++
++      H_PUT_32 (abfd, now, edata_d + 4);
++    }
+   else
+     H_PUT_32 (abfd, pe_data (abfd)->timestamp, edata_d + 4);
+ 

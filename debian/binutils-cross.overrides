@@ -13,3 +13,6 @@
 
 # some triplets are long ...
 @PKG@ binary: extended-description-line-too-long
+
+# yes, libctf libs intended here
+@PKG@ binary: link-to-shared-library-in-wrong-package

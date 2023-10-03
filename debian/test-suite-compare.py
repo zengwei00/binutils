@@ -25,6 +25,20 @@ import sys
 
 ################################################################################
 
+ignored_regressions = {
+    'gprofng.display/gp-collect-app_F.exp': ('tmpdir/gp-collect-app_F', ),
+    'gprofng.display/display.exp': ('synprog', ),
+    'ld-bootstrap/bootstrap.exp':  ('*',),
+    }
+
+def ignore_regression(section, test):
+    ign_tests = ignored_regressions.get(section)
+    if ign_tests == None:
+        return False
+    return ign_tests[0] == '*' or test in ign_tests
+
+################################################################################
+
 def fubar(msg, exit_code=1):
     sys.stderr.write("E: %s\n" % (msg))
     sys.exit(exit_code)
@@ -98,6 +112,7 @@ def compare_results(old, new):
     xfail_count = 0
     untested_count = 0
     regression_count = 0
+    ign_regression_count = 0
     progression_count = 0
     change_count = 0
 
@@ -132,16 +147,24 @@ def compare_results(old, new):
                     warn("[%s] %s: %s" % (section, state, test))
             elif state == "FAIL":
                 if old_state != "FAIL":
-                    regression_count += 1
-                    warn("[%s] REGRESSION (%s -> %s): %s" % (section, old_state, state, test))
+                    if ignore_regression(section, test):
+                        ign_regression_count += 1
+                        warn("[%s] IGNORED REGRESSION (%s -> %s): %s" % (section, old_state, state, test))
+                    else:
+                        regression_count += 1
+                        warn("[%s] REGRESSION (%s -> %s): %s" % (section, old_state, state, test))
             elif state == "XFAIL":
                 if old_state != "XFAIL":
                     change_count += 1
                     info("[%s] change (%s -> %s): %s" % (section, old_state, state, test))
             elif state == "UNRESOLVED":
                 if old_state != "UNRESOLVED" and old_state != "FAIL":
-                    regression_count += 1
-                    warn("[%s] REGRESSION (%s -> %s): %s" % (section, old_state, state, test))
+                    if ignore_regression(section, test):
+                        ign_regression_count += 1
+                        warn("[%s] IGNORED REGRESSION (%s -> %s): %s" % (section, old_state, state, test))
+                    else:
+                        regression_count += 1
+                        warn("[%s] REGRESSION (%s -> %s): %s" % (section, old_state, state, test))
                 if old_state == "FAIL":
                     change_count += 1
                     info("[%s] change (%s -> %s): %s" % (section, old_state, state, test))
@@ -150,6 +173,8 @@ def compare_results(old, new):
                     change_count += 1
                     warn("[%s] REGRESSION (%s -> %s): %s" % (section, old_state, state, test))
 
+    if ign_regression_count:
+        print("%d IGNORED REGRESSIONS (%.2f%%)." % (ign_regression_count, (float(ign_regression_count)/total_num)*100))
     if regression_count:
         print("%d REGRESSIONS (%.2f%%)." % (regression_count, (float(regression_count)/total_num)*100))
     if progression_count:

@@ -1,6 +1,6 @@
 ## Process this file with automake to generate Makefile.in
 #
-#   Copyright (C) 2012-2022 Free Software Foundation, Inc.
+#   Copyright (C) 2012-2023 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ TEXI2DVI = texi2dvi -I "$(srcdir)/%D%" -I %D% -I "$(srcdir)/../libiberty" \
 
 %D%/asconfig.texi: %D%/$(CONFIG).texi %D%/$(am__dirstamp)
 	$(AM_V_at)rm -f %D%/asconfig.texi
-	$(AM_V_GEN)cp $(srcdir)/%D%/$(CONFIG).texi %D%/asconfig.texi
+	$(AM_V_GEN)cp -p $(srcdir)/%D%/$(CONFIG).texi %D%/asconfig.texi
 	$(AM_V_at)chmod u+w %D%/asconfig.texi
 
 CPU_DOCS = \
@@ -100,10 +100,6 @@ CPU_DOCS = \
 	%D%/c-xtensa.texi \
 	%D%/c-z80.texi \
 	%D%/c-z8k.texi
-
-# We want install to imply install-info as per GNU standards, despite the
-# cygnus option.
-install-data-local: install-info
 
 # This one isn't ready for prime time yet.  Not even a little bit.
 

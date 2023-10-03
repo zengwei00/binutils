@@ -79,20 +79,3 @@ old_diversion /usr/bin/readelf
 old_diversion /usr/bin/size
 old_diversion /usr/bin/strings
 old_diversion /usr/bin/strip
-
-case "$ma" in i386-*)
-  if test -n "$context" && dpkg --compare-versions "$2" lt "2.27-8"; then
-    old_diversion /usr/bin/$ma-addr2line
-    old_diversion /usr/bin/$ma-ar
-    old_diversion /usr/bin/$ma-embedspu
-    old_diversion /usr/bin/$ma-gprof
-    old_diversion /usr/bin/$ma-nm
-    old_diversion /usr/bin/$ma-objcopy
-    old_diversion /usr/bin/$ma-objdump
-    old_diversion /usr/bin/$ma-ranlib
-    old_diversion /usr/bin/$ma-readelf
-    old_diversion /usr/bin/$ma-size
-    old_diversion /usr/bin/$ma-strings
-    old_diversion /usr/bin/$ma-strip
-  fi
-esac

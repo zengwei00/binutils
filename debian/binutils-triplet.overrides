@@ -1,4 +1,2 @@
 # empty
-
-# silence lintian stupidity
-@PKG@ binary: spelling-error-in-binary usr/bin/as mmnemonic mnemonic
+@PKG@ binary: mismatched-override spelling-error-in-binary

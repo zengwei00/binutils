@@ -6,8 +6,8 @@ DEB_BUILD_OPTIONS="parallel=<N> <option> ..." dpkg-buildpackage ...
 
 Where <option> can be:
 
- - nomult to diable the binutils-multilib build
- - nohppa64 to disable the hppa64 build
+ - nomult to disable the binutils-multilib build
+ - nohppa to disable the hppa64 build
  - nopgo to disable the PGO/LTO build
  - nocheck to disable running the testsuite
  - nocross to disable all builds for other targets
