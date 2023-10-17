@@ -1,3 +1,9 @@
+binutils (2.41-5~deepin1) unstable; urgency=medium
+
+  * Drop alpha-linux-gnu.
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Tue, 17 Oct 2023 17:06:07 +0800
+
 binutils (2.41-5) unstable; urgency=medium
 
   * Update binutils from the 2.41 branch.

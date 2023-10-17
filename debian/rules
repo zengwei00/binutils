@@ -120,7 +120,7 @@ install_script = install -m 755
 install_binary = install -m 755 -s --strip-program="$(STRIP)"
 
 NATIVE_ARCHS ?= amd64 i386 arm64 armhf armel ppc64el s390x
-NATIVE_ARCHS += alpha arc hppa ia64 m68k powerpc ppc64 \
+NATIVE_ARCHS += arc hppa ia64 m68k powerpc ppc64 \
 	riscv64 sh4 sparc64 x32
 NATIVE_ARCHS += hurd-amd64 hurd-i386 kfreebsd-amd64 kfreebsd-i386
 #NATIVE_ARCHS += nios2 or1k s390 sparc
@@ -141,18 +141,18 @@ ifeq ($(DEB_SOURCE),binutils)
     # DEB_HOST_ARCH is filtered-out later anyway, do not test here.
     CROSS_ARCHS ?= amd64 i386 x32 \
                    s390x ppc64el arm64 armhf armel \
-                   alpha arc hppa m68k \
+                   arc hppa m68k \
                    powerpc ppc64 sh4 sparc64 \
                    ia64 riscv64 \
                    kfreebsd-amd64 kfreebsd-i386 hurd-amd64 hurd-i386
   else ifeq ($(DEB_HOST_ARCH),arm64)
     CROSS_ARCHS ?= amd64 armel armhf i386 powerpc ppc64el riscv64 s390x \
-		   alpha arc hppa m68k sh4 sparc64 x32
+		   arc hppa m68k sh4 sparc64 x32
   else ifeq ($(DEB_HOST_ARCH),ppc64)
     CROSS_ARCHS ?= ppc64el
   else ifeq ($(DEB_HOST_ARCH),ppc64el)
     CROSS_ARCHS ?= powerpc ppc64 amd64 armel armhf arm64 i386 riscv64 s390x \
-		   alpha arc hppa m68k sh4 sparc64 x32
+		   arc hppa m68k sh4 sparc64 x32
   endif
 else ifeq ($(DEB_SOURCE),binutils-ports)
   CROSS_ARCHS ?= m68k sh4
@@ -204,7 +204,7 @@ HOST_ARCHS_i386 = amd64 arm64 ppc64el x32
 HOST_ARCHS_ia64 = amd64 i386 x32
 HOST_ARCHS_riscv64 = amd64 i386 x32 arm64 ppc64el
 
-HOST_ARCHS_alpha = amd64 i386 x32 arm64 ppc64el
+# HOST_ARCHS_alpha = amd64 i386 x32 arm64 ppc64el
 HOST_ARCHS_arc = amd64 i386 x32 arm64 ppc64el
 HOST_ARCHS_hppa = amd64 i386 x32 arm64 ppc64el
 HOST_ARCHS_m68k = amd64 i386 x32 arm64 ppc64el
@@ -752,7 +752,6 @@ endif
 multiarch_targets = \
 	aarch64-linux-gnu \
 	aarch64_be-linux-gnu \
-	alpha-linux-gnu \
 	arm-linux-gnueabi \
 	hppa-linux-gnu \
 	i686-linux-gnu \

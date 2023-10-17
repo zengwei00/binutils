@@ -13,7 +13,6 @@ Build-Depends: autoconf (>= 2.64), dpkg-dev (>= 1.19.0.5),
   g++-arm-linux-gnueabihf [amd64 arm64 i386 x32] <!nocheck>,
   g++-powerpc64le-linux-gnu [amd64 arm64 i386 ppc64 x32] <!nocheck>,
   g++-s390x-linux-gnu [amd64 arm64 i386 ppc64el x32] <!nocheck>,
-  g++-alpha-linux-gnu [amd64 i386 x32] <!nocheck>,
   g++-hppa-linux-gnu [amd64 i386 x32] <!nocheck>,
   g++-m68k-linux-gnu [amd64 i386 x32] <!nocheck>,
   g++-powerpc-linux-gnu [amd64 i386 ppc64el x32] <!nocheck>,
@@ -455,32 +454,6 @@ Multi-Arch: foreign
 Depends: binutils-s390x-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for s390x-linux-gnu target (debug symbols)
  This package provides debug symbols for binutils-s390x-linux-gnu.
-
-Package: binutils-alpha-linux-gnu
-Priority: optional
-Architecture: alpha amd64 i386 x32 arm64 ppc64el
-Multi-Arch: allowed
-Depends: binutils-common (= ${binary:Version}),
-  ${shlibs:Depends}, ${extraDepends}
-Suggests: binutils-doc (= ${source:Version})
-Provides: 
-Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
-Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
-Description: GNU binary utilities, for alpha-linux-gnu target
- This package provides GNU assembler, linker and binary utilities
- for the alpha-linux-gnu target.
- .
- You don't need this package unless you plan to cross-compile programs
- for alpha-linux-gnu and alpha-linux-gnu is not your native platform.
-
-Package: binutils-alpha-linux-gnu-dbg
-Section: debug
-Priority: optional
-Architecture: alpha amd64 i386 x32 arm64 ppc64el
-Multi-Arch: foreign
-Depends: binutils-alpha-linux-gnu (= ${binary:Version})
-Description: GNU binary utilities, for alpha-linux-gnu target (debug symbols)
- This package provides debug symbols for binutils-alpha-linux-gnu.
 
 Package: binutils-arc-linux-gnu
 Priority: optional
