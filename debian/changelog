@@ -1,3 +1,9 @@
+binutils (2.41-6~deepin1) unstable; urgency=medium
+
+ * Build packages for loong64.
+
+ -- Chang Yang <yangchang@deepin.org>  Wed, 25 Oct 2023 17:35:02 +0800
+
 binutils (2.41-5~deepin1) unstable; urgency=medium
 
   * Drop alpha-linux-gnu.

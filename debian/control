@@ -533,6 +533,32 @@ Depends: binutils-ia64-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for ia64-linux-gnu target (debug symbols)
  This package provides debug symbols for binutils-ia64-linux-gnu.
 
+Package: binutils-loongarch64-linux-gnu
+Priority: optional
+Architecture: loong64 amd64 i386 x32 arm64 ppc64el
+Multi-Arch: allowed
+Depends: binutils-common (= ${binary:Version}),
+  ${shlibs:Depends}, ${extraDepends}
+Suggests: binutils-doc (= ${source:Version})
+Provides: 
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Description: GNU binary utilities, for loongarch64-linux-gnu target
+ This package provides GNU assembler, linker and binary utilities
+ for the loongarch64-linux-gnu target.
+ .
+ You don't need this package unless you plan to cross-compile programs
+ for loongarch64-linux-gnu and loongarch64-linux-gnu is not your native platform.
+
+Package: binutils-loongarch64-linux-gnu-dbg
+Section: debug
+Priority: optional
+Architecture: loong64 amd64 i386 x32 arm64 ppc64el
+Multi-Arch: foreign
+Depends: binutils-loongarch64-linux-gnu (= ${binary:Version})
+Description: GNU binary utilities, for loongarch64-linux-gnu target (debug symbols)
+ This package provides debug symbols for binutils-loongarch64-linux-gnu.
+
 Package: binutils-m68k-linux-gnu
 Priority: optional
 Architecture: m68k amd64 i386 x32 arm64 ppc64el

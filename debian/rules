@@ -120,7 +120,7 @@ install_script = install -m 755
 install_binary = install -m 755 -s --strip-program="$(STRIP)"
 
 NATIVE_ARCHS ?= amd64 i386 arm64 armhf armel ppc64el s390x
-NATIVE_ARCHS += arc hppa ia64 m68k powerpc ppc64 \
+NATIVE_ARCHS += arc hppa ia64 loong64 m68k powerpc ppc64 \
 	riscv64 sh4 sparc64 x32
 NATIVE_ARCHS += hurd-amd64 hurd-i386 kfreebsd-amd64 kfreebsd-i386
 #NATIVE_ARCHS += nios2 or1k s390 sparc
@@ -141,7 +141,7 @@ ifeq ($(DEB_SOURCE),binutils)
     # DEB_HOST_ARCH is filtered-out later anyway, do not test here.
     CROSS_ARCHS ?= amd64 i386 x32 \
                    s390x ppc64el arm64 armhf armel \
-                   arc hppa m68k \
+                   arc hppa loong64 m68k \
                    powerpc ppc64 sh4 sparc64 \
                    ia64 riscv64 \
                    kfreebsd-amd64 kfreebsd-i386 hurd-amd64 hurd-i386
@@ -207,6 +207,7 @@ HOST_ARCHS_riscv64 = amd64 i386 x32 arm64 ppc64el
 # HOST_ARCHS_alpha = amd64 i386 x32 arm64 ppc64el
 HOST_ARCHS_arc = amd64 i386 x32 arm64 ppc64el
 HOST_ARCHS_hppa = amd64 i386 x32 arm64 ppc64el
+HOST_ARCHS_loong64 = amd64 i386 x32 arm64 ppc64el
 HOST_ARCHS_m68k = amd64 i386 x32 arm64 ppc64el
 HOST_ARCHS_ppc64 = amd64 i386 x32 ppc64el
 HOST_ARCHS_sh4 = amd64 i386 x32 arm64 ppc64el
@@ -756,6 +757,7 @@ multiarch_targets = \
 	hppa-linux-gnu \
 	i686-linux-gnu \
 	ia64-linux-gnu \
+	loongarch64-linux-gnu \
 	m32r-linux-gnu \
 	m68k-linux-gnu \
 	m68k-rtems \
