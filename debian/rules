@@ -120,9 +120,8 @@ install_script = install -m 755
 install_binary = install -m 755 -s --strip-program="$(STRIP)"
 
 NATIVE_ARCHS ?= amd64 i386 arm64 armhf armel ppc64el s390x
-NATIVE_ARCHS += arc hppa ia64 loong64 m68k powerpc ppc64 \
+NATIVE_ARCHS += arc hppa loong64 m68k powerpc \
 	riscv64 sh4 sparc64 x32
-NATIVE_ARCHS += hurd-amd64 hurd-i386 kfreebsd-amd64 kfreebsd-i386
 #NATIVE_ARCHS += nios2 or1k s390 sparc
 
 # don't generate the control file entries for native packages which are never
@@ -142,16 +141,19 @@ ifeq ($(DEB_SOURCE),binutils)
     CROSS_ARCHS ?= amd64 i386 x32 \
                    s390x ppc64el arm64 armhf armel \
                    arc hppa loong64 m68k \
-                   powerpc ppc64 sh4 sparc64 \
-                   ia64 riscv64 \
-                   kfreebsd-amd64 kfreebsd-i386 hurd-amd64 hurd-i386
+                   powerpc sh4 sparc64 \
+                   riscv64
   else ifeq ($(DEB_HOST_ARCH),arm64)
     CROSS_ARCHS ?= amd64 armel armhf i386 powerpc ppc64el riscv64 s390x \
 		   arc hppa m68k sh4 sparc64 x32
-  else ifeq ($(DEB_HOST_ARCH),ppc64)
-    CROSS_ARCHS ?= ppc64el
+  else ifeq ($(DEB_HOST_ARCH),loong64)
+    CROSS_ARCHS ?= amd64 arm64 armel armhf i386 powerpc ppc64el riscv64 s390x \
+		   arc hppa m68k sh4 sparc64 x32
   else ifeq ($(DEB_HOST_ARCH),ppc64el)
-    CROSS_ARCHS ?= powerpc ppc64 amd64 armel armhf arm64 i386 riscv64 s390x \
+    CROSS_ARCHS ?= powerpc amd64 armel armhf arm64 i386 riscv64 s390x \
+		   arc hppa m68k sh4 sparc64 x32
+  else ifeq ($(DEB_HOST_ARCH),riscv64)
+    CROSS_ARCHS ?= amd64 arm64 armel armhf i386 loong64 powerpc ppc64el s390x \
 		   arc hppa m68k sh4 sparc64 x32
   endif
 else ifeq ($(DEB_SOURCE),binutils-ports)
@@ -193,45 +195,38 @@ ifneq (,$(filter $(DEB_HOST_ARCH),amd64 i386 arm64 x32))
   CONF_GPROFNG = --enable-gprofng
 endif
 
-HOST_ARCHS_armhf = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_armel = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_arm64 = amd64 i386 x32 ppc64el
-HOST_ARCHS_powerpc = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_ppc64el = amd64 i386 x32 ppc64 arm64
-HOST_ARCHS_s390x = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_amd64 = arm64 i386 ppc64el x32
-HOST_ARCHS_i386 = amd64 arm64 ppc64el x32
-HOST_ARCHS_ia64 = amd64 i386 x32
-HOST_ARCHS_riscv64 = amd64 i386 x32 arm64 ppc64el
+HOST_ARCHS_armhf = amd64 i386 x32 arm64 ppc64el loong64 riscv64
+HOST_ARCHS_armel = amd64 i386 x32 arm64 ppc64el loong64 riscv64
+HOST_ARCHS_arm64 = amd64 i386 x32 ppc64el loong64 riscv64
+HOST_ARCHS_powerpc = amd64 i386 x32 arm64 ppc64el loong64 riscv64
+HOST_ARCHS_ppc64el = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_s390x = amd64 i386 x32 arm64 ppc64el loong64 riscv64
+HOST_ARCHS_amd64 = arm64 i386 ppc64el x32 arm64 loong64 riscv64
+HOST_ARCHS_i386 = amd64 arm64 ppc64el x32 arm64 loong64 riscv64
+HOST_ARCHS_riscv64 = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
+HOST_ARCHS_loong64 = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
 
-# HOST_ARCHS_alpha = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_arc = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_hppa = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_loong64 = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_m68k = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_ppc64 = amd64 i386 x32 ppc64el
-HOST_ARCHS_sh4 = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_sparc64 = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_x32 = amd64 arm64 i386 ppc64el
+HOST_ARCHS_arc = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
+HOST_ARCHS_hppa = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
+HOST_ARCHS_loong64 = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
+HOST_ARCHS_m68k = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
+HOST_ARCHS_sh4 = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
+HOST_ARCHS_sparc64 = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
+HOST_ARCHS_x32 = amd64 arm64 i386 ppc64el arm64 loong64 riscv64
 
-HOST_ARCHS_mips = amd64 i386 x32
-HOST_ARCHS_mipsel = amd64 i386 x32 arm64 ppc64el
-HOST_ARCHS_mipsn32 = amd64 i386 x32
-HOST_ARCHS_mipsn32el = amd64 i386 x32
-HOST_ARCHS_mips64 = amd64 i386 x32
-HOST_ARCHS_mips64el = amd64 i386 x32 arm64 ppc64el
+HOST_ARCHS_mips = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mipsel = amd64 i386 x32 arm64 ppc64el loong64 riscv64
+HOST_ARCHS_mipsn32 = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mipsn32el = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mips64 = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mips64el = amd64 i386 x32 arm64 ppc64el arm64 loong64 riscv64
 
-HOST_ARCHS_mipsr6 = amd64 i386 x32
-HOST_ARCHS_mipsr6el = amd64 i386 x32
-HOST_ARCHS_mipsn32r6 = amd64 i386 x32
-HOST_ARCHS_mipsn32r6el = amd64 i386 x32
-HOST_ARCHS_mips64r6 = amd64 i386 x32
-HOST_ARCHS_mips64r6el = amd64 i386 x32
-
-HOST_ARCHS_kfreebsd-amd64 = amd64 i386 x32
-HOST_ARCHS_kfreebsd-i386 = amd64 i386 x32
-HOST_ARCHS_hurd-amd64 = amd64 i386 x32
-HOST_ARCHS_hurd-i386 = amd64 i386 x32
+HOST_ARCHS_mipsr6 = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mipsr6el = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mipsn32r6 = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mipsn32r6el = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mips64r6 = amd64 i386 x32 arm64 loong64 riscv64
+HOST_ARCHS_mips64r6el = amd64 i386 x32 arm64 loong64 riscv64
 
 # Map a Debian architecture alias to a GNU type or a multiarch path component.
 run_dpkg_arch = $(or $(dpkg_arch_$1),$(eval \
@@ -286,7 +281,7 @@ gold_targets = \
 	amd64 arm64 armel armhf i386 \
 	mips mipsel mipsn32 mipsn32el mips64 mips64el \
 	mipsr6 mipsr6el mipsn32r6 mipsn32r6el mips64r6 mips64r6el \
-	powerpc ppc64 ppc64el sparc sparc64 s390x \
+	powerpc ppc64el sparc sparc64 s390x \
 	x32 kfreebsd-amd64 kfreebsd-i386 hurd-i386
 
 ifneq (,$(filter $(DEB_HOST_ARCH), $(gold_targets)))
@@ -756,7 +751,6 @@ multiarch_targets = \
 	arm-linux-gnueabi \
 	hppa-linux-gnu \
 	i686-linux-gnu \
-	ia64-linux-gnu \
 	loongarch64-linux-gnu \
 	m32r-linux-gnu \
 	m68k-linux-gnu \
@@ -1178,7 +1172,7 @@ endif
 	rm -rf $(d_bin)/$(PF)/include/obstack.h
 	rm -f $(d_doc)/$(PF)/share/info/configure.* $(d_doc)/$(PF)/share/info/standards.*
 
-ifneq (,$(filter $(DEB_HOST_ARCH),powerpc ppc64 ppc64el))
+ifneq (,$(filter $(DEB_HOST_ARCH),powerpc ppc64el))
 	rm -f $(d_bin)/$(PF)/bin/embedspu
 endif
 
@@ -1208,7 +1202,7 @@ ifeq ($(with_multiarch),yes)
 	rm -f $(d_mul)/$(PF)/bin/gp-*
 	rm -rf $(d_mul)/$(PF)/lib/*/gprofng
 
-  ifneq (,$(filter $(DEB_HOST_ARCH),powerpc ppc64 ppc64el))
+  ifneq (,$(filter $(DEB_HOST_ARCH),powerpc ppc64el))
 	rm -f $(d_mul)/$(PF)/bin/embedspu
   endif
 	rm -rf $(d_mul)/$(PF)/lib/$(DEB_HOST_MULTIARCH)/ldscripts
