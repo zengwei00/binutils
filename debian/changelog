@@ -1,3 +1,13 @@
+binutils (2.41-6deepin3) unstable; urgency=medium
+
+  * Drop LoongArch backports as they caused Kernel builds to not boot or crash
+    whilst loading certain kernel modules.
+  * This patchset should be revisited on a later date to enable kernel live-
+    patching support.
+  * Drop powerpc64 build target from d/control.
+
+ -- Mingcong Bai <baimingcong@uniontech.com>  Tue, 30 Jul 2024 16:48:17 +0800
+
 binutils (2.41-6deepin2) unstable; urgency=medium
 
   * Enable full cross compilation set for amd64, arm64, loong64, and riscv64.

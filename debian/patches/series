@@ -39,17 +39,3 @@ perl-shebang.diff
 
 link-jansson.diff
 pr30700.diff
-
-# LoongArch backports.
-0001-LoongArch-Fix-ld-no-relax-bug.patch
-0002-LoongArch-Directly-delete-relaxed-instuctions-in-fir.patch
-0003-LoongArch-Multiple-relax_trip-in-one-relax_pass.patch
-0004-LoongArch-Remove-elf_seg_map-info-output_bfd-NULL-re.patch
-0005-LoongArch-Modify-link_info.relax_pass-from-3-to-2.patch
-0006-LoongArch-Add-more-relaxation-testcases.patch
-0007-LoongArch-fix-internal-error-when-as-handling-unsupp.patch
-0008-as-Add-new-atomic-instructions-in-LoongArch-v1.1.patch
-0009-as-Add-new-estimated-reciprocal-instructions-in-Loon.patch
-0010-LoongArch-Modify-inconsistent-behavior-of-ld-with-un.patch
-0011-as-add-option-for-generate-R_LARCH_32-64_PCREL.patch
-0012-Add-testsuits-for-new-assembler-option-of-mthin-add-.patch
