@@ -1,3 +1,9 @@
+binutils (2.41-6deepin4) unstable; urgency=medium
+
+  * Enable loong64 cross target for arm64.
+
+ -- Mingcong Bai <baimingcong@uniontech.com>  Mon, 09 Sep 2024 10:19:28 +0800
+
 binutils (2.41-6deepin3) unstable; urgency=medium
 
   * Drop LoongArch backports as they caused Kernel builds to not boot or crash

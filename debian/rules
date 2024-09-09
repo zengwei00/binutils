@@ -145,7 +145,7 @@ ifeq ($(DEB_SOURCE),binutils)
                    riscv64
   else ifeq ($(DEB_HOST_ARCH),arm64)
     CROSS_ARCHS ?= amd64 armel armhf i386 powerpc ppc64el riscv64 s390x \
-		   arc hppa m68k sh4 sparc64 x32
+		   arc hppa m68k sh4 sparc64 x32 loong64
   else ifeq ($(DEB_HOST_ARCH),loong64)
     CROSS_ARCHS ?= amd64 arm64 armel armhf i386 powerpc ppc64el riscv64 s390x \
 		   arc hppa m68k sh4 sparc64 x32
