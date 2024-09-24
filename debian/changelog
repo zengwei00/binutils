@@ -1,3 +1,9 @@
+binutils (2.41-6deepin6) unstable; urgency=medium
+
+  * Disable gold linker for MIPS targets as they are broken as of 2.41.
+
+ -- Mingcong Bai <baimingcong@uniontech.com>  Tue, 24 Sep 2024 16:38:56 +0800
+
 binutils (2.41-6deepin5) unstable; urgency=medium
 
   * Backport patches from upstream to LoongArch.
