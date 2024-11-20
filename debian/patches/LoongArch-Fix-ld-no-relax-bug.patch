@@ -1,0 +1,56 @@
+From 363174776d13db9f35f2e54d8f7f5e34b64acbee Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 16 Nov 2023 19:19:11 +0800
+Subject: [PATCH] LoongArch: Fix ld --no-relax bug
+
+When calling ld with --no-relax, pcalau12i + ld.d still can be relaxed.
+This patch fix this bug and pcalau12i + ld.d can be relaxed with --relax.
+
+Signed-off-by: Peng Fan <fanpeng@loongson.cn>
+---
+ bfd/elfnn-loongarch.c | 19 ++++++-------------
+ 1 file changed, 6 insertions(+), 13 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 18ad3cc91ca..1162cb35cd6 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -3996,29 +3996,22 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	    loongarch_relax_align (abfd, sec, sym_sec, info, rel, symval);
+ 	  break;
+ 	case R_LARCH_DELETE:
+-	  if (info->relax_pass == 1)
++	  if (1 == info->relax_pass)
+ 	    {
+ 	      loongarch_relax_delete_bytes (abfd, sec, rel->r_offset, 4, info);
+ 	      rel->r_info = ELFNN_R_INFO (0, R_LARCH_NONE);
+ 	    }
+ 	  break;
+ 	case R_LARCH_PCALA_HI20:
+-	  if (info->relax_pass == 0)
+-	    {
+-	      if (i + 4 > sec->reloc_count)
+-		break;
+-	      loongarch_relax_pcala_addi (abfd, sec, rel, symval);
+-	    }
++	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
++	    loongarch_relax_pcala_addi (abfd, sec, rel, symval);
+ 	  break;
+ 	case R_LARCH_GOT_PC_HI20:
+-	  if (local_got)
++	  if (local_got && 0 == info->relax_pass
++	      && (i + 4) <= sec->reloc_count)
+ 	    {
+-	      if (i + 4 > sec->reloc_count)
+-		break;
+ 	      if (loongarch_relax_pcala_ld (abfd, sec, rel))
+-		{
+-		  loongarch_relax_pcala_addi (abfd, sec, rel, symval);
+-		}
++		loongarch_relax_pcala_addi (abfd, sec, rel, symval);
+ 	    }
+ 	  break;
+ 	default:
+-- 
+2.33.0
+

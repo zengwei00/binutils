@@ -1,0 +1,166 @@
+From d839b6eeb36c9d033038854e08cc8e10b34968ba Mon Sep 17 00:00:00 2001
+From: changjiachen <changjiachen@stu.xupt.edu.cn>
+Date: Thu, 28 Dec 2023 19:59:39 +0800
+Subject: [PATCH 034/123] LoongArch: gas: Add support for tls le relax.
+
+Add tls le relax related relocs support and testsuites in gas.
+
+The main test is three new relocation items,
+R_LARCH_TLS_LE_ADD_R, R_LARCH_TLS_LE_HI20_R,
+R_LARCH_TLS_LE_LO12_R can be generated properly
+and tls le insn format check.
+
+gas/ChangeLog:
+
+	* config/tc-loongarch.c:
+	(loongarch_args_parser_can_match_arg_helper): Add support for relax.
+	* gas/testsuite/gas/loongarch/reloc.d: Likewise.
+	* gas/testsuite/gas/loongarch/reloc.s: Likewise.
+	* gas/testsuite/gas/loongarch/loongarch.exp: Likewise.
+	* gas/testsuite/gas/loongarch/tls_le_insn_format_check.s: New test.
+---
+ gas/config/tc-loongarch.c                     | 32 +++++++++++++++++++
+ gas/testsuite/gas/loongarch/loongarch.exp     |  9 ++++++
+ gas/testsuite/gas/loongarch/reloc.d           | 18 +++++++++++
+ gas/testsuite/gas/loongarch/reloc.s           | 11 +++++++
+ .../gas/loongarch/tls_le_insn_format_check.s  | 15 +++++++++
+ 5 files changed, 85 insertions(+)
+ create mode 100644 gas/testsuite/gas/loongarch/tls_le_insn_format_check.s
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index def26daf..fad18fcd 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -636,6 +636,30 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 	  break;
+ 	}
+       break;
++    /* This is used for TLS, where the fourth operand is %le_add_r,
++       to get a relocation applied to an add instruction, for relaxation to use.
++       Two conditions, ip->match_now and reloc_num, are used to check tls insn
++       to prevent cases like add.d $a0,$a0,$a0,8.  */
++    case 't':
++      ip->match_now = loongarch_parse_expr (arg, ip->reloc_info + ip->reloc_num,
++				reloc_num_we_have, &reloc_num, &imm) == 0;
++
++      if (!ip->match_now)
++	break;
++
++      bfd_reloc_code_real_type tls_reloc_type = BFD_RELOC_LARCH_TLS_LE_ADD_R;
++
++      if (reloc_num
++	  && (ip->reloc_info[ip->reloc_num].type == tls_reloc_type))
++	{
++	  ip->reloc_num += reloc_num;
++	  ip->reloc_info[ip->reloc_num].type = BFD_RELOC_LARCH_RELAX;
++	  ip->reloc_info[ip->reloc_num].value = const_0;
++	  ip->reloc_num++;
++	}
++      else
++	ip->match_now = 0;
++      break;
+     case 's':
+     case 'u':
+       ip->match_now =
+@@ -690,6 +714,14 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 	      ip->reloc_num += reloc_num;
+ 	      reloc_type = ip->reloc_info[0].type;
+ 
++	      if (LARCH_opts.relax
++		    && (BFD_RELOC_LARCH_TLS_LE_HI20_R == reloc_type
++			|| BFD_RELOC_LARCH_TLS_LE_LO12_R == reloc_type))
++		{
++		  ip->reloc_info[ip->reloc_num].type = BFD_RELOC_LARCH_RELAX;
++		  ip->reloc_info[ip->reloc_num].value = const_0;
++		  ip->reloc_num++;
++		}
+ 	      if (LARCH_opts.relax && ip->macro_id
+ 		    && (BFD_RELOC_LARCH_PCALA_HI20 == reloc_type
+ 			|| BFD_RELOC_LARCH_PCALA_LO12 == reloc_type
+diff --git a/gas/testsuite/gas/loongarch/loongarch.exp b/gas/testsuite/gas/loongarch/loongarch.exp
+index 6d126fd4..c0aa593d 100644
+--- a/gas/testsuite/gas/loongarch/loongarch.exp
++++ b/gas/testsuite/gas/loongarch/loongarch.exp
+@@ -21,4 +21,13 @@
+ if [istarget loongarch*-*-*] {
+     run_dump_tests [lsort [glob -nocomplain $srcdir/$subdir/*.d]]
+     gas_test_old bfd_reloc_8.s "" "bfd_reloc_8"
++    if [file exist "tls_le_insn_format_check.s "] {
++      set format [run_host_cmd "as" "tls_le_insn_format_check.s"]
++      if { [ regexp ".*no match insn.*" $format] } {
++	pass "loongarch tls le insn format pass"
++      } {
++	pass "loongarch tls le insn format fail"
++      }
++    }
++
+ }
+diff --git a/gas/testsuite/gas/loongarch/reloc.d b/gas/testsuite/gas/loongarch/reloc.d
+index c3820c55..0458830f 100644
+--- a/gas/testsuite/gas/loongarch/reloc.d
++++ b/gas/testsuite/gas/loongarch/reloc.d
+@@ -165,3 +165,21 @@ Disassembly of section .text:
+ [ 	]+134:[ 	]+R_LARCH_TLS_LE64_LO20[ 	]+TLSL1\+0x8
+ [ 	]+138:[ 	]+03000085[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a0,[ 	]+0
+ [ 	]+138:[ 	]+R_LARCH_TLS_LE64_HI12[ 	]+TLSL1\+0x8
++[ 	]+13c:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
++[ 	]+13c:[ 	]+R_LARCH_TLS_LE_HI20_R[ 	]+TLSL1
++[ 	]+13c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+140:[ 	]+001090a5[ 	]+add.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+\$a0
++[ 	]+140:[ 	]+R_LARCH_TLS_LE_ADD_R[ 	]+TLSL1
++[ 	]+140:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+144:[ 	]+29800085[ 	]+st.w[ 	]+\$a1,[ 	]+\$a0,[ 	]+0
++[ 	]+144:[ 	]+R_LARCH_TLS_LE_LO12_R[ 	]+TLSL1
++[ 	]+144:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+148:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
++[ 	]+148:[ 	]+R_LARCH_TLS_LE_HI20_R[ 	]+TLSL1\+0x8
++[ 	]+148:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+14c:[ 	]+001090a5[ 	]+add.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+\$a0
++[ 	]+14c:[ 	]+R_LARCH_TLS_LE_ADD_R[ 	]+TLSL1\+0x8
++[ 	]+14c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+150:[ 	]+29800085[ 	]+st.w[ 	]+\$a1,[ 	]+\$a0,[ 	]+0
++[ 	]+150:[ 	]+R_LARCH_TLS_LE_LO12_R[ 	]+TLSL1\+0x8
++[ 	]+150:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+diff --git a/gas/testsuite/gas/loongarch/reloc.s b/gas/testsuite/gas/loongarch/reloc.s
+index a67fecd9..0a343c11 100644
+--- a/gas/testsuite/gas/loongarch/reloc.s
++++ b/gas/testsuite/gas/loongarch/reloc.s
+@@ -142,3 +142,14 @@ lu12i.w $r4,%le_hi20(TLSL1 + 0x8)
+ ori $r5,$r4,%le_lo12(TLSL1 + 0x8)
+ lu32i.d $r4,%le64_lo20(TLSL1 + 0x8)
+ lu52i.d $r5,$r4,%le64_hi12(TLSL1 + 0x8)
++
++
++/* New TLS Insn.  */
++lu12i.w $r4,%le_hi20_r(TLSL1)
++add.d   $r5,$r5,$r4,%le_add_r(TLSL1)
++st.w $r5,$r4,%le_lo12_r(TLSL1)
++
++/* New TLS Insn with addend.  */
++lu12i.w $r4,%le_hi20_r(TLSL1 + 0x8)
++add.d   $r5,$r5,$r4,%le_add_r(TLSL1 + 0x8)
++st.w $r5,$r4,%le_lo12_r(TLSL1 + 0x8)
+diff --git a/gas/testsuite/gas/loongarch/tls_le_insn_format_check.s b/gas/testsuite/gas/loongarch/tls_le_insn_format_check.s
+new file mode 100644
+index 00000000..1b3c9d18
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tls_le_insn_format_check.s
+@@ -0,0 +1,15 @@
++/* Assemble the following assembly statements using as.
++
++   The test case is mainly to check the format of tls le type
++   symbolic address fetch instruction.Because in tls le symbolic
++   address acquisition, there will be a special add.d instruction,
++   which has four operands (add.d op1,op2,op3,op4),the first three
++   operands are registers, and the last operand is a relocation,
++   we need to format check the fourth operand.If it is not a correct
++   relocation type operand, we need to throw the relevant exception
++   message.
++
++   if a "no match insn" exception is thrown, the test passes;
++   otherwise, the test fails.  */
++
++add.d $a0,$a0,$a0,8
+-- 
+2.33.0
+

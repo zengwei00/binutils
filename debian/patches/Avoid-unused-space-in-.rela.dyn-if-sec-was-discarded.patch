@@ -1,0 +1,102 @@
+From 79505ef8b8ccd844aee06cab4aec2404fb5e4475 Mon Sep 17 00:00:00 2001
+From: Jinyang He <hejinyang@loongson.cn>
+Date: Fri, 15 Sep 2023 11:52:14 +0800
+Subject: [PATCH 060/123] Avoid unused space in .rela.dyn if sec was discarded
+
+The relsec size is still increased although sec is discarded, which
+cause a lot of unused space allocated. Avoid size increased if sec
+was discarded.
+
+bfd/ChangeLog:
+
+	* bfd/elfnn-loongarch.c: (allocate_dynrelocs): Do not increase
+	sreloc size when discarded_section.
+
+ld/ChangeLog:
+
+	* ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp: Add test.
+	* ld/testsuite/ld-loongarch-elf/pie_discard.d: New test.
+	* ld/testsuite/ld-loongarch-elf/pie_discard.s: New test.
+	* ld/testsuite/ld-loongarch-elf/pie_discard.t: New test.
+---
+ bfd/elfnn-loongarch.c                              |  2 ++
+ ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp |  1 +
+ ld/testsuite/ld-loongarch-elf/pie_discard.d        | 10 ++++++++++
+ ld/testsuite/ld-loongarch-elf/pie_discard.s        |  9 +++++++++
+ ld/testsuite/ld-loongarch-elf/pie_discard.t        |  9 +++++++++
+ 5 files changed, 31 insertions(+)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/pie_discard.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/pie_discard.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/pie_discard.t
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 2e72fe5c..1693ad7e 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -1368,6 +1368,8 @@ allocate_dynrelocs (struct elf_link_hash_entry *h, void *inf)
+ 
+   for (p = h->dyn_relocs; p != NULL; p = p->next)
+     {
++      if (discarded_section (p->sec))
++	continue;
+       asection *sreloc = elf_section_data (p->sec)->sreloc;
+       sreloc->size += p->count * sizeof (ElfNN_External_Rela);
+     }
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 7fc43d41..b3029e53 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -147,3 +147,4 @@ run_dump_test "underflow_b16"
+ run_dump_test "underflow_b21"
+ run_dump_test "underflow_b26"
+ run_dump_test "underflow_pcrel20"
++run_dump_test "pie_discard"
+diff --git a/ld/testsuite/ld-loongarch-elf/pie_discard.d b/ld/testsuite/ld-loongarch-elf/pie_discard.d
+new file mode 100644
+index 00000000..7b863091
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/pie_discard.d
+@@ -0,0 +1,10 @@
++#source: pie_discard.s
++#ld: -pie -e 0 -T pie_discard.t
++#readelf: -rW
++
++#...
++Relocation section '\.rela\.dyn' .* 1 .*
++#...
++.*R_LARCH_RELATIVE.*
++#pass
++
+diff --git a/ld/testsuite/ld-loongarch-elf/pie_discard.s b/ld/testsuite/ld-loongarch-elf/pie_discard.s
+new file mode 100644
+index 00000000..82b88fc1
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/pie_discard.s
+@@ -0,0 +1,9 @@
++  .text
++  .global sym
++sym: nop
++
++  .section .data,"aw"
++  .dword sym
++
++  .section .discard,"aw"
++  .dword sym
+diff --git a/ld/testsuite/ld-loongarch-elf/pie_discard.t b/ld/testsuite/ld-loongarch-elf/pie_discard.t
+new file mode 100644
+index 00000000..49e52cdb
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/pie_discard.t
+@@ -0,0 +1,9 @@
++SECTIONS
++{
++  . = SEGMENT_START("text-segment", 0) + SIZEOF_HEADERS;
++  .rela.dyn : { *(.rela.*) }
++  .text : { *(.text) }
++  . = DATA_SEGMENT_ALIGN (CONSTANT (MAXPAGESIZE), CONSTANT (COMMONPAGESIZE));
++  .data : { *(.data) }
++  /DISCARD/ : { *(.discard) }
++}
+-- 
+2.33.0
+

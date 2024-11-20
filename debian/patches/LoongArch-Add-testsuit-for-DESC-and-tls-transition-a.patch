@@ -1,0 +1,669 @@
+From aaab3bca7ff42e982134fd638ad1ae8324260a8f Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 13 Dec 2023 11:34:56 +0800
+Subject: [PATCH 029/123] LoongArch: Add testsuit for DESC and tls transition
+ and tls relaxation.
+
+---
+ gas/testsuite/gas/loongarch/tlsdesc_32.d      | 27 ++++++++
+ gas/testsuite/gas/loongarch/tlsdesc_32.s      | 12 ++++
+ gas/testsuite/gas/loongarch/tlsdesc_32_abs.d  | 26 ++++++++
+ gas/testsuite/gas/loongarch/tlsdesc_32_abs.s  |  8 +++
+ gas/testsuite/gas/loongarch/tlsdesc_64.d      | 28 ++++++++
+ gas/testsuite/gas/loongarch/tlsdesc_64.s      | 12 ++++
+ .../gas/loongarch/tlsdesc_large_abs.d         | 34 ++++++++++
+ .../gas/loongarch/tlsdesc_large_abs.s         | 12 ++++
+ .../gas/loongarch/tlsdesc_large_pc.d          | 38 +++++++++++
+ .../gas/loongarch/tlsdesc_large_pc.s          | 17 +++++
+ ld/testsuite/ld-loongarch-elf/desc-ie.d       | 16 +++++
+ ld/testsuite/ld-loongarch-elf/desc-ie.s       | 18 +++++
+ ld/testsuite/ld-loongarch-elf/desc-le.d       | 15 +++++
+ ld/testsuite/ld-loongarch-elf/desc-le.s       | 14 ++++
+ ld/testsuite/ld-loongarch-elf/desc-norelax.d  | 16 +++++
+ ld/testsuite/ld-loongarch-elf/desc-norelax.s  |  5 ++
+ ld/testsuite/ld-loongarch-elf/desc-relax.d    | 15 +++++
+ ld/testsuite/ld-loongarch-elf/desc-relax.s    |  5 ++
+ ld/testsuite/ld-loongarch-elf/ie-le.d         | 13 ++++
+ ld/testsuite/ld-loongarch-elf/ie-le.s         | 11 ++++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     |  9 +++
+ ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d   | 56 ++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/tlsdesc-dso.s   | 65 +++++++++++++++++++
+ 23 files changed, 472 insertions(+)
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_32.d
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_32.s
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_32_abs.d
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_32_abs.s
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_64.d
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_64.s
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_large_abs.d
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_large_abs.s
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_large_pc.d
+ create mode 100644 gas/testsuite/gas/loongarch/tlsdesc_large_pc.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-ie.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-ie.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-le.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-le.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-norelax.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-norelax.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-relax.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/desc-relax.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/ie-le.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/ie-le.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/tlsdesc-dso.s
+
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_32.d b/gas/testsuite/gas/loongarch/tlsdesc_32.d
+new file mode 100644
+index 00000000..eddcc5ed
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_32.d
+@@ -0,0 +1,27 @@
++#as:
++#objdump: -dr
++#skip: loongarch64-*-*
++
++.*:[    ]+file format .*
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	1a000004 	pcalau12i   	\$a0, 0
++			0: R_LARCH_TLS_DESC_PC_HI20	var
++   4:	02800084 	addi.w      	\$a0, \$a0, 0
++			4: R_LARCH_TLS_DESC_PC_LO12	var
++   8:	28800081 	ld.w        	\$ra, \$a0, 0
++			8: R_LARCH_TLS_DESC_LD	var
++   c:	4c000021 	jirl        	\$ra, \$ra, 0
++			c: R_LARCH_TLS_DESC_CALL	var
++  10:	1a000004 	pcalau12i   	\$a0, 0
++			10: R_LARCH_TLS_DESC_PC_HI20	var
++			10: R_LARCH_RELAX	\*ABS\*
++  14:	02800084 	addi.w      	\$a0, \$a0, 0
++			14: R_LARCH_TLS_DESC_PC_LO12	var
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	28800081 	ld.w        	\$ra, \$a0, 0
++			18: R_LARCH_TLS_DESC_LD	var
++  1c:	4c000021 	jirl        	\$ra, \$ra, 0
++			1c: R_LARCH_TLS_DESC_CALL	var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_32.s b/gas/testsuite/gas/loongarch/tlsdesc_32.s
+new file mode 100644
+index 00000000..ef6aee94
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_32.s
+@@ -0,0 +1,12 @@
++.L1:
++	# R_LARCH_TLS_DESC_PC_HI20 var
++	pcalau12i       $a0,%desc_pc_hi20(var)
++	# R_LARCH_TLS_DESC_PC_LO12 var
++	addi.w  $a0,$a0,%desc_pc_lo12(var)
++	# R_LARCH_TLS_DESC_LD var
++        ld.w    $ra,$a0,%desc_ld(var)
++	# R_LARCH_TLS_DESC_CALL var
++	jirl    $ra,$ra,%desc_call(var)
++
++	# test macro, pcalau12i + addi.w => pcaddi
++	la.tls.desc	$a0,var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_32_abs.d b/gas/testsuite/gas/loongarch/tlsdesc_32_abs.d
+new file mode 100644
+index 00000000..e787e409
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_32_abs.d
+@@ -0,0 +1,26 @@
++#as: -mla-global-with-abs
++#objdump: -dr
++#skip: loongarch64-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	14000004 	lu12i.w     	\$a0, 0
++			0: R_LARCH_TLS_DESC_HI20	var
++   4:	03800084 	ori         	\$a0, \$a0, 0x0
++			4: R_LARCH_TLS_DESC_LO12	var
++   8:	28800081 	ld.w        	\$ra, \$a0, 0
++			8: R_LARCH_TLS_DESC_LD	var
++   c:	4c000021 	jirl        	\$ra, \$ra, 0
++			c: R_LARCH_TLS_DESC_CALL	var
++  10:	14000004 	lu12i.w     	\$a0, 0
++			10: R_LARCH_TLS_DESC_HI20	var
++  14:	03800084 	ori         	\$a0, \$a0, 0x0
++			14: R_LARCH_TLS_DESC_LO12	var
++  18:	28800081 	ld.w        	\$ra, \$a0, 0
++			18: R_LARCH_TLS_DESC_LD	var
++  1c:	4c000021 	jirl        	\$ra, \$ra, 0
++			1c: R_LARCH_TLS_DESC_CALL	var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_32_abs.s b/gas/testsuite/gas/loongarch/tlsdesc_32_abs.s
+new file mode 100644
+index 00000000..65d096ea
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_32_abs.s
+@@ -0,0 +1,8 @@
++.L1:
++	lu12i.w		$a0,%desc_hi20(var)
++	ori		$a0,$a0,%desc_lo12(var)
++	ld.w		$ra,$a0,%desc_ld(var)
++	jirl		$ra,$ra,%desc_call(var)
++
++	# Test macro expansion
++	la.tls.desc	$a0,var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_64.d b/gas/testsuite/gas/loongarch/tlsdesc_64.d
+new file mode 100644
+index 00000000..2a2829c9
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_64.d
+@@ -0,0 +1,28 @@
++#as:
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	1a000004 	pcalau12i   	\$a0, 0
++			0: R_LARCH_TLS_DESC_PC_HI20	var
++   4:	02c00084 	addi.d      	\$a0, \$a0, 0
++			4: R_LARCH_TLS_DESC_PC_LO12	var
++   8:	28c00081 	ld.d        	\$ra, \$a0, 0
++			8: R_LARCH_TLS_DESC_LD	var
++   c:	4c000021 	jirl        	\$ra, \$ra, 0
++			c: R_LARCH_TLS_DESC_CALL	var
++  10:	1a000004 	pcalau12i   	\$a0, 0
++			10: R_LARCH_TLS_DESC_PC_HI20	var
++			10: R_LARCH_RELAX	\*ABS\*
++  14:	02c00084 	addi.d      	\$a0, \$a0, 0
++			14: R_LARCH_TLS_DESC_PC_LO12	var
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	28c00081 	ld.d        	\$ra, \$a0, 0
++			18: R_LARCH_TLS_DESC_LD	var
++  1c:	4c000021 	jirl        	\$ra, \$ra, 0
++			1c: R_LARCH_TLS_DESC_CALL	var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_64.s b/gas/testsuite/gas/loongarch/tlsdesc_64.s
+new file mode 100644
+index 00000000..9d0ccb17
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_64.s
+@@ -0,0 +1,12 @@
++.L1:
++	# R_LARCH_TLS_DESC_PC_HI20 var
++	pcalau12i       $a0,%desc_pc_hi20(var)
++	# R_LARCH_TLS_DESC_PC_LO12 var
++	addi.d  $a0,$a0,%desc_pc_lo12(var)
++	# R_LARCH_TLS_DESC_LD var
++        ld.d    $ra,$a0,%desc_ld(var)
++	# R_LARCH_TLS_DESC_CALL var
++	jirl    $ra,$ra,%desc_call(var)
++
++	# test macro, pcalau12i + addi.d => pcaddi
++	la.tls.desc	$a0,var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_large_abs.d b/gas/testsuite/gas/loongarch/tlsdesc_large_abs.d
+new file mode 100644
+index 00000000..5411a3ac
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_large_abs.d
+@@ -0,0 +1,34 @@
++#as: -mla-global-with-abs
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	14000004 	lu12i.w     	\$a0, 0
++			0: R_LARCH_TLS_DESC_HI20	var
++   4:	03800084 	ori         	\$a0, \$a0, 0x0
++			4: R_LARCH_TLS_DESC_LO12	var
++   8:	16000004 	lu32i.d     	\$a0, 0
++			8: R_LARCH_TLS_DESC64_LO20	var
++   c:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			c: R_LARCH_TLS_DESC64_HI12	var
++  10:	28c00081 	ld.d        	\$ra, \$a0, 0
++			10: R_LARCH_TLS_DESC_LD	var
++  14:	4c000021 	jirl        	\$ra, \$ra, 0
++			14: R_LARCH_TLS_DESC_CALL	var
++  18:	14000004 	lu12i.w     	\$a0, 0
++			18: R_LARCH_TLS_DESC_HI20	var
++  1c:	03800084 	ori         	\$a0, \$a0, 0x0
++			1c: R_LARCH_TLS_DESC_LO12	var
++  20:	16000004 	lu32i.d     	\$a0, 0
++			20: R_LARCH_TLS_DESC64_LO20	var
++  24:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			24: R_LARCH_TLS_DESC64_HI12	var
++  28:	28c00081 	ld.d        	\$ra, \$a0, 0
++			28: R_LARCH_TLS_DESC_LD	var
++  2c:	4c000021 	jirl        	\$ra, \$ra, 0
++			2c: R_LARCH_TLS_DESC_CALL	var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_large_abs.s b/gas/testsuite/gas/loongarch/tlsdesc_large_abs.s
+new file mode 100644
+index 00000000..27a52620
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_large_abs.s
+@@ -0,0 +1,12 @@
++.L1:
++	.global var
++	#TLSDESC large abs
++	lu12i.w		$a0,%desc_hi20(var)
++	ori		$a0,$a0,%desc_lo12(var)
++	lu32i.d		$a0,%desc64_lo20(var)
++	lu52i.d		$a0,$a0,%desc64_hi12(var)
++	ld.d		$ra,$a0,%desc_ld(var)
++	jirl		$ra,$ra,%desc_call(var)
++
++	# Test macro expansion
++	la.tls.desc	$a0,var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_large_pc.d b/gas/testsuite/gas/loongarch/tlsdesc_large_pc.d
+new file mode 100644
+index 00000000..2b7a4660
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_large_pc.d
+@@ -0,0 +1,38 @@
++#as:
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	1a000004 	pcalau12i   	\$a0, 0
++			0: R_LARCH_TLS_DESC_PC_HI20	var
++   4:	02c00005 	li.d        	\$a1, 0
++			4: R_LARCH_TLS_DESC_PC_LO12	var
++   8:	16000005 	lu32i.d     	\$a1, 0
++			8: R_LARCH_TLS_DESC64_PC_LO20	var
++   c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			c: R_LARCH_TLS_DESC64_PC_HI12	var
++  10:	00109484 	add.d       	\$a0, \$a0, \$a1
++  14:	28c00081 	ld.d        	\$ra, \$a0, 0
++			14: R_LARCH_TLS_DESC_LD	var
++  18:	4c000021 	jirl        	\$ra, \$ra, 0
++			18: R_LARCH_TLS_DESC_CALL	var
++  1c:	1a000004 	pcalau12i   	\$a0, 0
++			1c: R_LARCH_TLS_DESC_PC_HI20	var
++			1c: R_LARCH_RELAX	\*ABS\*
++  20:	02c00001 	li.d        	\$ra, 0
++			20: R_LARCH_TLS_DESC_PC_LO12	var
++			20: R_LARCH_RELAX	\*ABS\*
++  24:	16000001 	lu32i.d     	\$ra, 0
++			24: R_LARCH_TLS_DESC64_PC_LO20	var
++  28:	03000021 	lu52i.d     	\$ra, \$ra, 0
++			28: R_LARCH_TLS_DESC64_PC_HI12	var
++  2c:	00108484 	add.d       	\$a0, \$a0, \$ra
++  30:	28c00081 	ld.d        	\$ra, \$a0, 0
++			30: R_LARCH_TLS_DESC_LD	var
++  34:	4c000021 	jirl        	\$ra, \$ra, 0
++			34: R_LARCH_TLS_DESC_CALL	var
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_large_pc.s b/gas/testsuite/gas/loongarch/tlsdesc_large_pc.s
+new file mode 100644
+index 00000000..0d0839a7
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/tlsdesc_large_pc.s
+@@ -0,0 +1,17 @@
++.L1:
++	# R_LARCH_TLS_DESC_PC_HI20 var
++	pcalau12i       $a0,%desc_pc_hi20(var)
++	# R_LARCH_TLS_DESC_PC_LO12
++	addi.d		$a1,$zero,%desc_pc_lo12(var)
++	# R_LARCH_TLS_DESC64_PC_LO20
++	lu32i.d		$a1,%desc64_pc_lo20(var)
++	# R_LARCH_TLS_DESC64_PC_HI12
++	lu52i.d		$a1,$a1,%desc64_pc_hi12(var)
++	add.d		$a0,$a0,$a1
++	# R_LARCH_TLS_DESC_LD
++	ld.d		$ra,$a0,%desc_ld(var)
++	# R_LARCH_TLS_DESC
++	jirl		$ra,$ra,%desc_call(var)
++
++	# Test macro expansion
++	la.tls.desc	$a0,$ra,var
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-ie.d b/ld/testsuite/ld-loongarch-elf/desc-ie.d
+new file mode 100644
+index 00000000..d1acbfc6
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-ie.d
+@@ -0,0 +1,16 @@
++#as:
++#ld: -shared -z norelro -e 0x0
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++Disassembly of section .text:
++
++0+230 <fn1>:
++ 230:	1a000084 	pcalau12i   	\$a0, 4
++ 234:	28cd6084 	ld.d        	\$a0, \$a0, 856
++ 238:	03400000 	nop.*
++ 23c:	03400000 	nop.*
++ 240:	1a000084 	pcalau12i   	\$a0, 4
++ 244:	28cd6081 	ld.d        	\$ra, \$a0, 856
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-ie.s b/ld/testsuite/ld-loongarch-elf/desc-ie.s
+new file mode 100644
+index 00000000..7f5772bc
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-ie.s
+@@ -0,0 +1,18 @@
++	.global v1
++	.section .tdata,"awT",@progbits
++v1:
++	.word 1
++	.text
++	.global	fn1
++	.type	fn1,@function
++fn1:
++
++	# Use DESC and IE to access the same symbol,
++	# DESC will relax to IE.
++	pcalau12i       $a0,%desc_pc_hi20(var)
++	addi.d  $a0,$a0,%desc_pc_lo12(var)
++	ld.d    $ra,$a0,%desc_ld(var)
++	jirl    $ra,$ra,%desc_call(var)
++
++	pcalau12i       $a0,%ie_pc_hi20(var)
++	ld.d		$ra,$a0,%ie_pc_lo12(var)
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-le.d b/ld/testsuite/ld-loongarch-elf/desc-le.d
+new file mode 100644
+index 00000000..b4ca9f82
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-le.d
+@@ -0,0 +1,15 @@
++#as:
++#ld: -z norelro -e 0x0
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+1200000e8 <fn1>:
++   1200000e8:	14000004 	lu12i.w     	\$a0, 0
++   1200000ec:	03800084 	ori         	\$a0, \$a0, 0x0
++   1200000f0:	03400000 	nop.*
++   1200000f4:	03400000 	nop.*
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-le.s b/ld/testsuite/ld-loongarch-elf/desc-le.s
+new file mode 100644
+index 00000000..9ffaa2d6
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-le.s
+@@ -0,0 +1,14 @@
++	.global var
++	.section .tdata,"awT",@progbits
++var:
++	.word 1
++	.text
++	.global	fn1
++	.type	fn1,@function
++fn1:
++
++	# DESC will relax to LE.
++	pcalau12i       $a0,%desc_pc_hi20(var)
++	addi.d  $a0,$a0,%desc_pc_lo12(var)
++	ld.d    $ra,$a0,%desc_ld(var)
++	jirl    $ra,$ra,%desc_call(var)
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-norelax.d b/ld/testsuite/ld-loongarch-elf/desc-norelax.d
+new file mode 100644
+index 00000000..32ce3e5e
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-norelax.d
+@@ -0,0 +1,16 @@
++#as:
++#ld: -z norelro -shared --section-start=.got=0x1ff000
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+1c0 <.*>:
++ 1c0:	1a003fe4 	pcalau12i   	\$a0, 511
++ 1c4:	02c02084 	addi.d      	\$a0, \$a0, 8
++ 1c8:	28c00081 	ld.d        	\$ra, \$a0, 0
++ 1cc:	4c000021 	jirl        	\$ra, \$ra, 0
++ 1d0:	0010888c 	add.d       	\$t0, \$a0, \$tp
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-norelax.s b/ld/testsuite/ld-loongarch-elf/desc-norelax.s
+new file mode 100644
+index 00000000..9aa7f552
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-norelax.s
+@@ -0,0 +1,5 @@
++.L1:
++# The got address of the symbol exceeds the
++# range of pcaddi, do not relax.
++la.tls.desc $a0,var
++add.d $t0,$a0,$tp
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-relax.d b/ld/testsuite/ld-loongarch-elf/desc-relax.d
+new file mode 100644
+index 00000000..ce53d317
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-relax.d
+@@ -0,0 +1,15 @@
++#as:
++#ld: -z norelro -shared
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+188 <.*>:
++ 188:	18020844 	pcaddi      	\$a0, 4162
++ 18c:	28c00081 	ld.d        	\$ra, \$a0, 0
++ 190:	4c000021 	jirl        	\$ra, \$ra, 0
++ 194:	0010888c 	add.d       	\$t0, \$a0, \$tp
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-relax.s b/ld/testsuite/ld-loongarch-elf/desc-relax.s
+new file mode 100644
+index 00000000..4a993a5c
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/desc-relax.s
+@@ -0,0 +1,5 @@
++.L1:
++# A UND symbol but no more than the range of pcaddi,
++# do pcalau12i + addi => pcaddi
++la.tls.desc $a0,var
++add.d $t0,$a0,$tp
+diff --git a/ld/testsuite/ld-loongarch-elf/ie-le.d b/ld/testsuite/ld-loongarch-elf/ie-le.d
+new file mode 100644
+index 00000000..42694d7f
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/ie-le.d
+@@ -0,0 +1,13 @@
++#as:
++#ld: -z norelro -e 0x0
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+1200000e8 <fn1>:
++   1200000e8:	14000004 	lu12i.w     	\$a0, 0
++   1200000ec:	03800084 	ori         	\$a0, \$a0, 0x0
+diff --git a/ld/testsuite/ld-loongarch-elf/ie-le.s b/ld/testsuite/ld-loongarch-elf/ie-le.s
+new file mode 100644
+index 00000000..795c7ce4
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/ie-le.s
+@@ -0,0 +1,11 @@
++	.data
++	.section	.tdata,"awT",@progbits
++var:
++	.word 1
++	.text
++	.global	fn1
++	.type	gn1,@function
++fn1:
++	# expect IE to relax LE.
++	pcalau12i       $a0,%ie_pc_hi20(var)
++	ld.d    	$a0,$a0,%ie_pc_lo12(var)
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index b43a518a..2a5709a5 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -69,3 +69,12 @@ if [istarget "loongarch64-*-*"] {
+ 	  ] \
+       ]
+ }
++
++if [istarget "loongarch64-*-*"] {
++    run_dump_test "desc-ie"
++    run_dump_test "desc-le"
++    run_dump_test "ie-le"
++    run_dump_test "tlsdesc-dso"
++    run_dump_test "desc-norelax"
++    run_dump_test "desc-relax"
++}
+diff --git a/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d b/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d
+new file mode 100644
+index 00000000..667ad746
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d
+@@ -0,0 +1,56 @@
++#as:
++#ld: -shared -z norelro
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+418 <fun_gl1>:
++ 418:	180214c4 	pcaddi      	\$a0, 4262
++ 41c:	1a000084 	pcalau12i   	\$a0, 4
++ 420:	28db0084 	ld.d        	\$a0, \$a0, 1728
++ 424:	180212a4 	pcaddi      	\$a0, 4245
++ 428:	18021304 	pcaddi      	\$a0, 4248
++ 42c:	28c00081 	ld.d        	\$ra, \$a0, 0
++ 430:	4c000021 	jirl        	\$ra, \$ra, 0
++ 434:	1a000084 	pcalau12i   	\$a0, 4
++ 438:	28d9c084 	ld.d        	\$a0, \$a0, 1648
++ 43c:	03400000 	nop.*
++ 440:	03400000 	nop.*
++ 444:	1a000084 	pcalau12i   	\$a0, 4
++ 448:	28d9c084 	ld.d        	\$a0, \$a0, 1648
++ 44c:	18021264 	pcaddi      	\$a0, 4243
++ 450:	18021244 	pcaddi      	\$a0, 4242
++ 454:	28c00081 	ld.d        	\$ra, \$a0, 0
++ 458:	4c000021 	jirl        	\$ra, \$ra, 0
++ 45c:	1a000084 	pcalau12i   	\$a0, 4
++ 460:	28daa084 	ld.d        	\$a0, \$a0, 1704
++
++0+464 <fun_lo>:
++ 464:	1a000084 	pcalau12i   	\$a0, 4
++ 468:	28d86084 	ld.d        	\$a0, \$a0, 1560
++ 46c:	18020ce4 	pcaddi      	\$a0, 4199
++ 470:	18020e04 	pcaddi      	\$a0, 4208
++ 474:	28c00081 	ld.d        	\$ra, \$a0, 0
++ 478:	4c000021 	jirl        	\$ra, \$ra, 0
++ 47c:	18020d24 	pcaddi      	\$a0, 4201
++ 480:	1a000084 	pcalau12i   	\$a0, 4
++ 484:	28d90084 	ld.d        	\$a0, \$a0, 1600
++ 488:	03400000 	nop.*
++ 48c:	03400000 	nop.*
++ 490:	1a000084 	pcalau12i   	\$a0, 4
++ 494:	28d90084 	ld.d        	\$a0, \$a0, 1600
++ 498:	18020d84 	pcaddi      	\$a0, 4204
++ 49c:	28c00081 	ld.d        	\$ra, \$a0, 0
++ 4a0:	4c000021 	jirl        	\$ra, \$ra, 0
++ 4a4:	18020d24 	pcaddi      	\$a0, 4201
++ 4a8:	1a000084 	pcalau12i   	\$a0, 4
++ 4ac:	28d96084 	ld.d        	\$a0, \$a0, 1624
++
++0+4b0 <fun_external>:
++ 4b0:	18020d84 	pcaddi      	\$a0, 4204
++ 4b4:	28c00081 	ld.d        	\$ra, \$a0, 0
++ 4b8:	4c000021 	jirl        	\$ra, \$ra, 0
+diff --git a/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.s b/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.s
+new file mode 100644
+index 00000000..936bbcea
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.s
+@@ -0,0 +1,65 @@
++	.data
++	.section	.tdata,"awT",@progbits
++	.global gl1, gl2, gl3, gl4
++gl1:	.dword 1
++gl2:	.dword 2
++gl3:	.dword 3
++gl4:	.dword 4
++lo1:	.dword 10
++lo2:	.dword 20
++lo3:	.dword 30
++lo4:	.dword 40
++	.text
++# Access global symbol
++fun_gl1:
++	# GD + IE
++	# GD: pcaddi + addi.d => pcaddi
++	la.tls.gd	$a0, gl1
++	la.tls.ie	$a0, gl1
++
++	# GD + DESC
++	# GD: pcaddi + addi.d => pcaddi
++	la.tls.gd	$a0, gl2
++	# DESC: pcaddi + addi.d => pcaddi
++	la.tls.desc	$a0, gl2
++
++	# DESC + IE
++	# DESC -> IE
++	la.tls.desc	$a0, gl3
++	la.tls.ie	$a0, gl3
++
++	# GD + DESC + IE
++	# GD: pcaddi + addi.d => pcaddi
++	la.tls.gd	$a0, gl4
++	# DESC: pcaddi + addi.d => pcaddi
++	la.tls.desc	$a0, gl4
++	la.tls.ie	$a0, gl4
++
++# Access local symbol
++fun_lo:
++	# IE + GD
++	la.tls.ie	$a0, lo1
++	# GD: pcaddi + addi.d => pcaddi
++	la.tls.gd	$a0, lo1
++
++	# DESC + GD
++	# DESC: pcaddi + addi.d => pcaddi
++	la.tls.desc	$a0, lo2
++	# GD: pcaddi + addi.d => pcaddi
++	la.tls.gd	$a0, lo2
++
++	# DESC + IE
++	# DESC: DESC -> IE
++	la.tls.desc	$a0, lo3
++	la.tls.ie	$a0, lo3
++
++	# DESC + GD + IE
++	# DESC: pcaddi + addi.d => pcaddi
++	la.tls.desc	$a0, lo4
++	# GD: pcaddi + addi.d => pcaddi
++	la.tls.gd	$a0, lo4
++	la.tls.ie	$a0, lo4
++
++# Access external undef symbol
++fun_external:
++	la.tls.desc	$a0, sH1
+-- 
+2.33.0
+

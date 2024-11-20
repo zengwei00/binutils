@@ -1,0 +1,413 @@
+From a86ce43d41f2b4453d1137939f25c7b2c68215ee Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Wed, 22 May 2024 14:27:08 +0800
+Subject: [PATCH 088/123] LoongArch: Fix relaxation overflow caused by ld -z
+ separate-code
+
+ld -z separate-code let .text and .rodata in two different but read only
+segment. If the symbol and pc in two segment, the offset from pc to
+symbol need to consider segment alignment.
+
+Add a function 'loongarch_two_sections_in_same_segment' to determine
+whether two sections are in the same segment.
+---
+ bfd/elfnn-loongarch.c                         | 101 +++++++++++-------
+ .../ld-loongarch-elf/relax-medium-call-1.d    |  51 ++++++---
+ .../ld-loongarch-elf/relax-medium-call-1.s    |   6 +-
+ .../ld-loongarch-elf/relax-medium-call.d      |  51 ++++++---
+ .../ld-loongarch-elf/relax-medium-call.s      |   6 +-
+ .../relax-separate-code-overflow.s            |  21 ++++
+ ld/testsuite/ld-loongarch-elf/relax.exp       |  15 +++
+ 7 files changed, 176 insertions(+), 75 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-separate-code-overflow.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 47fd08cd..eb572a77 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -3948,6 +3948,12 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	  info->callbacks->reloc_overflow
+ 	    (info, h ? &h->root : NULL, name, howto->name, rel->r_addend,
+ 	     input_bfd, input_section, rel->r_offset);
++	  if (r_type == R_LARCH_PCREL20_S2
++	      || r_type == R_LARCH_TLS_LD_PCREL20_S2
++	      || r_type == R_LARCH_TLS_GD_PCREL20_S2
++	      || r_type == R_LARCH_TLS_DESC_PCREL20_S2)
++	    _bfd_error_handler (_("recompile with 'gcc -mno-relax' or"
++				  " 'as -mno-relax' or 'ld --no-relax'"));
+ 	  break;
+ 
+ 	case bfd_reloc_outofrange:
+@@ -4312,6 +4318,30 @@ loongarch_relax_tls_le (bfd *abfd, asection *sec,
+   return true;
+ }
+ 
++/* Whether two sections in the same segment.  */
++static bool
++loongarch_two_sections_in_same_segment (bfd *abfd, asection *a, asection *b)
++{
++  struct elf_segment_map *m;
++  for (m = elf_seg_map (abfd); m != NULL; m = m->next)
++    {
++      int i;
++      int j = 0;
++      for (i = m->count - 1; i >= 0; i--)
++	{
++	  if (m->sections[i] == a)
++	    j++;
++	  if (m->sections[i] == b)
++	    j++;
++	}
++      if (1 == j)
++	return false;
++      if (2 == j)
++	return true;
++    }
++  return false;
++}
++
+ /* Relax pcalau12i,addi.d => pcaddi.  */
+ static bool
+ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+@@ -4332,23 +4362,17 @@ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+   sec->output_offset = sec->output_section->size;
+   bfd_vma pc = sec_addr (sec) + rel_hi->r_offset;
+ 
+-  /* If pc and symbol not in the same segment, add/sub segment alignment.
+-     FIXME: if there are multiple readonly segments? How to determine if
+-     two sections are in the same segment.  */
+-  if (!(sym_sec->flags & SEC_READONLY))
+-    {
+-      max_alignment = info->maxpagesize > max_alignment ? info->maxpagesize
+-							  : max_alignment;
+-      if (symval > pc)
+-	pc -= max_alignment;
+-      else if (symval < pc)
+-	pc += max_alignment;
+-    }
+-  else
+-    if (symval > pc)
+-      pc -= max_alignment;
+-    else if (symval < pc)
+-      pc += max_alignment;
++  /* If pc and symbol not in the same segment, add/sub segment alignment.  */
++  if (!loongarch_two_sections_in_same_segment (info->output_bfd,
++					       sec->output_section,
++					       sym_sec->output_section))
++    max_alignment = info->maxpagesize > max_alignment ? info->maxpagesize
++							: max_alignment;
++
++  if (symval > pc)
++    pc -= (max_alignment > 4 ? max_alignment : 0);
++  else if (symval < pc)
++    pc += (max_alignment > 4 ? max_alignment : 0);
+ 
+   const uint32_t addi_d = 0x02c00000;
+   const uint32_t pcaddi = 0x18000000;
+@@ -4387,7 +4411,7 @@ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+ /* call36 f -> bl f
+    tail36 $t0, f -> b f.  */
+ static bool
+-loongarch_relax_call36 (bfd *abfd, asection *sec,
++loongarch_relax_call36 (bfd *abfd, asection *sec, asection *sym_sec,
+ 			    Elf_Internal_Rela *rel, bfd_vma symval,
+ 			    struct bfd_link_info *info, bool *again,
+ 			    bfd_vma max_alignment)
+@@ -4403,9 +4427,13 @@ loongarch_relax_call36 (bfd *abfd, asection *sec,
+   sec->output_offset = sec->output_section->size;
+   bfd_vma pc = sec_addr (sec) + rel->r_offset;
+ 
+-  /* If pc and symbol not in the same segment, add/sub segment alignment.
+-     FIXME: if there are multiple readonly segments? How to determine if
+-     two sections are in the same segment.  */
++  /* If pc and symbol not in the same segment, add/sub segment alignment.  */
++  if (!loongarch_two_sections_in_same_segment (info->output_bfd,
++					       sec->output_section,
++					       sym_sec->output_section))
++    max_alignment = info->maxpagesize > max_alignment ? info->maxpagesize
++							: max_alignment;
++
+   if (symval > pc)
+     pc -= (max_alignment > 4 ? max_alignment : 0);
+   else if (symval < pc)
+@@ -4559,22 +4587,17 @@ loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
+   sec->output_offset = sec->output_section->size;
+   bfd_vma pc = sec_addr (sec) + rel_hi->r_offset;
+ 
+-  /* If pc and symbol not in the same segment, add/sub segment alignment.
+-     FIXME: if there are multiple readonly segments?  */
+-  if (!(sym_sec->flags & SEC_READONLY))
+-    {
+-      max_alignment = info->maxpagesize > max_alignment ? info->maxpagesize
+-							  : max_alignment;
+-      if (symval > pc)
+-	pc -= max_alignment;
+-      else if (symval < pc)
+-	pc += max_alignment;
+-    }
+-  else
+-    if (symval > pc)
+-      pc -= max_alignment;
+-    else if (symval < pc)
+-      pc += max_alignment;
++  /* If pc and symbol not in the same segment, add/sub segment alignment.  */
++  if (!loongarch_two_sections_in_same_segment (info->output_bfd,
++					       sec->output_section,
++					       sym_sec->output_section))
++    max_alignment = info->maxpagesize > max_alignment ? info->maxpagesize
++							: max_alignment;
++
++  if (symval > pc)
++    pc -= (max_alignment > 4 ? max_alignment : 0);
++  else if (symval < pc)
++    pc += (max_alignment > 4 ? max_alignment : 0);
+ 
+   const uint32_t addi_d = 0x02c00000;
+   const uint32_t pcaddi = 0x18000000;
+@@ -4858,8 +4881,8 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  break;
+ 	case R_LARCH_CALL36:
+ 	  if (0 == info->relax_pass && (i + 2) <= sec->reloc_count)
+-	    loongarch_relax_call36 (abfd, sec, rel, symval, info, again,
+-				    max_alignment);
++	    loongarch_relax_call36 (abfd, sec, sym_sec, rel, symval,
++				    info, again, max_alignment);
+ 	  break;
+ 
+ 	case R_LARCH_TLS_LE_HI20_R:
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d
+index c8ee9333..96e7bb09 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d
+@@ -1,21 +1,42 @@
+-#ld: -e0 -Ttext=0x120000000 --section-start=ta=0x118000000 --section-start=tb=0x127fffffc
+-#objdump: -d -j .text
++#ld: -e0
++#objdump: -d
+ 
+ .*:[    ]+file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-[ 	]*0000000120000000 <__bss_start-0x4030>:
+-[ 	]+120000000:[ 	]+54000200[ 	]+bl[ 	]+-134217728[ 	]+# 118000000 <a>
+-[ 	]+120000004:[ 	]+1fffc001[ 	]+pcaddu18i[ 	]+\$ra, -512
+-[ 	]+120000008:[ 	]+4ffffc21[ 	]+jirl[ 	]+\$ra, \$ra, -4
+-[ 	]+12000000c:[ 	]+50000200[ 	]+b[ 	]+-134217728[ 	]+# 11800000c <b>
+-[ 	]+120000010:[ 	]+1fffc00c[ 	]+pcaddu18i[ 	]+\$t0, -512
+-[ 	]+120000014:[ 	]+4ffffd80[ 	]+jirl[ 	]+\$zero, \$t0, -4
+-[ 	]+120000018:[ 	]+1e004001[ 	]+pcaddu18i[ 	]+\$ra, 512
+-[ 	]+12000001c:[ 	]+4c000421[ 	]+jirl[ 	]+\$ra, \$ra, 4
+-[ 	]+120000020:[ 	]+57fffdff[ 	]+bl[ 	]+134217724[ 	]+# 12800001c <c>
+-[ 	]+120000024:[ 	]+1e00400c[ 	]+pcaddu18i[ 	]+\$t0, 512
+-[ 	]+120000028:[ 	]+4c000580[ 	]+jirl[ 	]+\$zero, \$t0, 4
+-[ 	]+12000002c:[ 	]+53fffdff[ 	]+b[ 	]+134217724[ 	]+# 128000028 <d>
++[ 	]*0000000120000078 <a>:
++[ 	]+120000078:[ 	]+4c000020[ 	]+ret
++[ 	]+12000007c:[ 	]+4c000020[ 	]+ret
++[ 	]+120000080:[ 	]+4c000020[ 	]+ret
++[ 	]*0000000120000084 <b>:
++[ 	]+120000084:[ 	]+4c000020[ 	]+ret
++[ 	]+...
++[ 	]+128000078:[ 	]+54000200[ 	]+bl[ 	]+-134217728[ 	]+# 120000078 <a>
++[ 	]+12800007c:[ 	]+1fffc001[ 	]+pcaddu18i[ 	]+\$ra, -512
++[ 	]+128000080:[ 	]+4ffffc21[ 	]+jirl[ 	]+\$ra, \$ra, -4
++[ 	]+128000084:[ 	]+50000200[ 	]+b[ 	]+-134217728[ 	]+# 120000084 <b>
++[ 	]+128000088:[ 	]+1fffc00c[ 	]+pcaddu18i[ 	]+\$t0, -512
++[ 	]+12800008c:[ 	]+4ffffd80[ 	]+jirl[ 	]+\$zero, \$t0, -4
++[ 	]+128000090:[ 	]+1e004001[ 	]+pcaddu18i[ 	]+\$ra, 512
++[ 	]+128000094:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
++[ 	]+128000098:[ 	]+57fff9ff[ 	]+bl[ 	]+134217720[ 	]+# 130000090 <c>
++[ 	]+12800009c:[ 	]+1e00400c[ 	]+pcaddu18i[ 	]+\$t0, 512
++[ 	]+1280000a0:[ 	]+4c000180[ 	]+jr[ 	]+\$t0
++[ 	]+1280000a4:[ 	]+53fff9ff[ 	]+b[ 	]+134217720[ 	]+# 13000009c <d>
++[ 	]+...
++[ 	]+130000070:[ 	]+4c000020[ 	]+ret
++[ 	]+130000074:[ 	]+4c000020[ 	]+ret
++[ 	]+130000078:[ 	]+4c000020[ 	]+ret
++[ 	]+13000007c:[ 	]+4c000020[ 	]+ret
++[ 	]+130000080:[ 	]+4c000020[ 	]+ret
++[ 	]+130000084:[ 	]+4c000020[ 	]+ret
++[ 	]+130000088:[ 	]+4c000020[ 	]+ret
++[ 	]+13000008c:[ 	]+4c000020[ 	]+ret
++[ 	]*0000000130000090 <c>:
++[ 	]+130000090:[ 	]+4c000020[ 	]+ret
++[ 	]+130000094:[ 	]+4c000020[ 	]+ret
++[ 	]+130000098:[ 	]+4c000020[ 	]+ret
++[ 	]*000000013000009c <d>:
++[ 	]+13000009c:[ 	]+4c000020[ 	]+ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s
+index 5266fdab..1770ec9f 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s
+@@ -1,12 +1,12 @@
+-.section "ta", "ax"
++.text
+ a:
+   ret
+   ret
+   ret
+ b:
+   ret
++  .fill 0x7fffff0
+ 
+-.text
+   pcaddu18i $ra, %call36(a) # min offset, can relax
+   jirl	    $ra, $ra, 0
+   pcaddu18i $ra, %call36(a) # overflow, not relax
+@@ -25,7 +25,7 @@ b:
+   pcaddu18i $t0, %call36(d) # max offset, can relax
+   jirl	    $zero, $t0, 0
+ 
+-.section "tb", "ax"
++  .fill 0x7ffffc8
+   ret
+   ret
+   ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call.d b/ld/testsuite/ld-loongarch-elf/relax-medium-call.d
+index c8ee9333..96e7bb09 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax-medium-call.d
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call.d
+@@ -1,21 +1,42 @@
+-#ld: -e0 -Ttext=0x120000000 --section-start=ta=0x118000000 --section-start=tb=0x127fffffc
+-#objdump: -d -j .text
++#ld: -e0
++#objdump: -d
+ 
+ .*:[    ]+file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-[ 	]*0000000120000000 <__bss_start-0x4030>:
+-[ 	]+120000000:[ 	]+54000200[ 	]+bl[ 	]+-134217728[ 	]+# 118000000 <a>
+-[ 	]+120000004:[ 	]+1fffc001[ 	]+pcaddu18i[ 	]+\$ra, -512
+-[ 	]+120000008:[ 	]+4ffffc21[ 	]+jirl[ 	]+\$ra, \$ra, -4
+-[ 	]+12000000c:[ 	]+50000200[ 	]+b[ 	]+-134217728[ 	]+# 11800000c <b>
+-[ 	]+120000010:[ 	]+1fffc00c[ 	]+pcaddu18i[ 	]+\$t0, -512
+-[ 	]+120000014:[ 	]+4ffffd80[ 	]+jirl[ 	]+\$zero, \$t0, -4
+-[ 	]+120000018:[ 	]+1e004001[ 	]+pcaddu18i[ 	]+\$ra, 512
+-[ 	]+12000001c:[ 	]+4c000421[ 	]+jirl[ 	]+\$ra, \$ra, 4
+-[ 	]+120000020:[ 	]+57fffdff[ 	]+bl[ 	]+134217724[ 	]+# 12800001c <c>
+-[ 	]+120000024:[ 	]+1e00400c[ 	]+pcaddu18i[ 	]+\$t0, 512
+-[ 	]+120000028:[ 	]+4c000580[ 	]+jirl[ 	]+\$zero, \$t0, 4
+-[ 	]+12000002c:[ 	]+53fffdff[ 	]+b[ 	]+134217724[ 	]+# 128000028 <d>
++[ 	]*0000000120000078 <a>:
++[ 	]+120000078:[ 	]+4c000020[ 	]+ret
++[ 	]+12000007c:[ 	]+4c000020[ 	]+ret
++[ 	]+120000080:[ 	]+4c000020[ 	]+ret
++[ 	]*0000000120000084 <b>:
++[ 	]+120000084:[ 	]+4c000020[ 	]+ret
++[ 	]+...
++[ 	]+128000078:[ 	]+54000200[ 	]+bl[ 	]+-134217728[ 	]+# 120000078 <a>
++[ 	]+12800007c:[ 	]+1fffc001[ 	]+pcaddu18i[ 	]+\$ra, -512
++[ 	]+128000080:[ 	]+4ffffc21[ 	]+jirl[ 	]+\$ra, \$ra, -4
++[ 	]+128000084:[ 	]+50000200[ 	]+b[ 	]+-134217728[ 	]+# 120000084 <b>
++[ 	]+128000088:[ 	]+1fffc00c[ 	]+pcaddu18i[ 	]+\$t0, -512
++[ 	]+12800008c:[ 	]+4ffffd80[ 	]+jirl[ 	]+\$zero, \$t0, -4
++[ 	]+128000090:[ 	]+1e004001[ 	]+pcaddu18i[ 	]+\$ra, 512
++[ 	]+128000094:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
++[ 	]+128000098:[ 	]+57fff9ff[ 	]+bl[ 	]+134217720[ 	]+# 130000090 <c>
++[ 	]+12800009c:[ 	]+1e00400c[ 	]+pcaddu18i[ 	]+\$t0, 512
++[ 	]+1280000a0:[ 	]+4c000180[ 	]+jr[ 	]+\$t0
++[ 	]+1280000a4:[ 	]+53fff9ff[ 	]+b[ 	]+134217720[ 	]+# 13000009c <d>
++[ 	]+...
++[ 	]+130000070:[ 	]+4c000020[ 	]+ret
++[ 	]+130000074:[ 	]+4c000020[ 	]+ret
++[ 	]+130000078:[ 	]+4c000020[ 	]+ret
++[ 	]+13000007c:[ 	]+4c000020[ 	]+ret
++[ 	]+130000080:[ 	]+4c000020[ 	]+ret
++[ 	]+130000084:[ 	]+4c000020[ 	]+ret
++[ 	]+130000088:[ 	]+4c000020[ 	]+ret
++[ 	]+13000008c:[ 	]+4c000020[ 	]+ret
++[ 	]*0000000130000090 <c>:
++[ 	]+130000090:[ 	]+4c000020[ 	]+ret
++[ 	]+130000094:[ 	]+4c000020[ 	]+ret
++[ 	]+130000098:[ 	]+4c000020[ 	]+ret
++[ 	]*000000013000009c <d>:
++[ 	]+13000009c:[ 	]+4c000020[ 	]+ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call.s b/ld/testsuite/ld-loongarch-elf/relax-medium-call.s
+index c0521b65..7b149620 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax-medium-call.s
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call.s
+@@ -1,12 +1,12 @@
+-.section "ta", "ax"
++.text
+ a:
+   ret
+   ret
+   ret
+ b:
+   ret
++  .fill 0x7fffff0
+ 
+-.text
+   call36 a	# min offset, can relax
+   call36 a	# overflow, not relax
+   tail36 $t0, b	# min offset, can relax
+@@ -17,7 +17,7 @@ b:
+   tail36 $t0, d	# overflow, no relax
+   tail36 $t0, d # max offset, can relax
+ 
+-.section "tb", "ax"
++  .fill 0x7ffffc8
+   ret
+   ret
+   ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-separate-code-overflow.s b/ld/testsuite/ld-loongarch-elf/relax-separate-code-overflow.s
+new file mode 100644
+index 00000000..df5dd5fe
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-separate-code-overflow.s
+@@ -0,0 +1,21 @@
++# ld -z separate-code let .text and .rodata in two segment,
++# need to consider segment alignment
++.text
++  # first two la.local relax in the second trip, and result in the third
++  # la.local (relax to pcaddi) overflow
++  la.local $r12, a
++  la.local $r12, b
++  .fill 0x3ff8
++  # relax in the first trip
++  la.local $r12, c
++  .fill 0x1fbfec
++a:
++  .fill 8
++b:
++  .fill 0x1000
++d:
++  .fill 0x1
++
++.section .rodata
++c:
++  .8byte 0x1
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index c1da9c10..05c4ed0a 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -308,6 +308,21 @@ if [istarget loongarch64-*-*] {
+ 		"relax-section-align-overflow" \
+ 	    ] \
+ 	]
++
++    # # loongarch*-elf target do not support -z separate-code
++    if [check_shared_lib_support] {
++      run_ld_link_tests \
++	  [list \
++	      [list \
++		  "loongarch relax separate code overflow" \
++		  "-e0 -z separate-code" "" \
++		  "" \
++		  {relax-separate-code-overflow.s} \
++		  {} \
++		  "relax-separate-code-overflow" \
++	      ] \
++	  ]
++    }
+   }
+ 
+   if [check_shared_lib_support] {
+-- 
+2.33.0
+

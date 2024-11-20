@@ -1,0 +1,390 @@
+From 6ddd9c5a47335388ce3031313325b259a9f28773 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 27 Dec 2023 19:42:01 +0800
+Subject: [PATCH 037/123] LoongArch: Fix some macro that cannot be expanded
+ properly
+
+Suppose we want to use la.got to generate 32 pcrel and
+32 abs instruction sequences respectively. According to
+the existing conditions, to generate 32 pcrel sequences
+use -mabi=ilp32*, and to generate 32 abs use -mabi=ilp32*
+and -mla-global-with-abs.
+
+Due to the fact that the conditions for generating 32 abs
+also satisfy 32 pcrel, using -mabi=ilp32* and -mla-global-with-abs
+will result in only generating instruction sequences of 32 pcrel.
+
+By modifying the conditions for macro expansion and adjusting
+the matching order of macro instructions, it is ensured that
+the correct sequence of instructions can be generated.
+---
+ .../gas/loongarch/macro_op_extreme_abs.d      | 72 +++++++++++++++
+ .../gas/loongarch/macro_op_extreme_abs.s      |  9 ++
+ ...o_op_large_abs.d => macro_op_extreme_pc.d} | 13 ++-
+ .../gas/loongarch/macro_op_extreme_pc.s       |  9 ++
+ .../gas/loongarch/macro_op_large_abs.s        |  9 --
+ .../gas/loongarch/macro_op_large_pc.d         | 89 -------------------
+ .../gas/loongarch/macro_op_large_pc.s         |  9 --
+ opcodes/loongarch-opc.c                       | 24 ++---
+ 8 files changed, 108 insertions(+), 126 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/macro_op_extreme_abs.d
+ create mode 100644 gas/testsuite/gas/loongarch/macro_op_extreme_abs.s
+ rename gas/testsuite/gas/loongarch/{macro_op_large_abs.d => macro_op_extreme_pc.d} (93%)
+ create mode 100644 gas/testsuite/gas/loongarch/macro_op_extreme_pc.s
+ delete mode 100644 gas/testsuite/gas/loongarch/macro_op_large_abs.s
+ delete mode 100644 gas/testsuite/gas/loongarch/macro_op_large_pc.d
+ delete mode 100644 gas/testsuite/gas/loongarch/macro_op_large_pc.s
+
+diff --git a/gas/testsuite/gas/loongarch/macro_op_extreme_abs.d b/gas/testsuite/gas/loongarch/macro_op_extreme_abs.d
+new file mode 100644
+index 00000000..5c823ba0
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/macro_op_extreme_abs.d
+@@ -0,0 +1,72 @@
++#as: -mla-global-with-abs -mla-local-with-abs
++#objdump: -dr
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.L1>:
++   0:	14000004 	lu12i.w     	\$a0, 0
++			0: R_LARCH_MARK_LA	\*ABS\*
++			0: R_LARCH_ABS_HI20	.L1
++   4:	03800084 	ori         	\$a0, \$a0, 0x0
++			4: R_LARCH_ABS_LO12	.L1
++   8:	16000004 	lu32i.d     	\$a0, 0
++			8: R_LARCH_ABS64_LO20	.L1
++   c:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			c: R_LARCH_ABS64_HI12	.L1
++  10:	14000004 	lu12i.w     	\$a0, 0
++			10: R_LARCH_MARK_LA	\*ABS\*
++			10: R_LARCH_ABS_HI20	.L1
++  14:	03800084 	ori         	\$a0, \$a0, 0x0
++			14: R_LARCH_ABS_LO12	.L1
++  18:	16000004 	lu32i.d     	\$a0, 0
++			18: R_LARCH_ABS64_LO20	.L1
++  1c:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			1c: R_LARCH_ABS64_HI12	.L1
++  20:	1a000004 	pcalau12i   	\$a0, 0
++			20: R_LARCH_PCALA_HI20	.L1
++			20: R_LARCH_RELAX	\*ABS\*
++  24:	02c00084 	addi.d      	\$a0, \$a0, 0
++			24: R_LARCH_PCALA_LO12	.L1
++			24: R_LARCH_RELAX	\*ABS\*
++  28:	14000004 	lu12i.w     	\$a0, 0
++			28: R_LARCH_GOT_HI20	.L1
++  2c:	03800084 	ori         	\$a0, \$a0, 0x0
++			2c: R_LARCH_GOT_LO12	.L1
++  30:	16000004 	lu32i.d     	\$a0, 0
++			30: R_LARCH_GOT64_LO20	.L1
++  34:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			34: R_LARCH_GOT64_HI12	.L1
++  38:	28c00084 	ld.d        	\$a0, \$a0, 0
++  3c:	14000004 	lu12i.w     	\$a0, 0
++			3c: R_LARCH_TLS_LE_HI20	TLS1
++  40:	03800084 	ori         	\$a0, \$a0, 0x0
++			40: R_LARCH_TLS_LE_LO12	TLS1
++  44:	14000004 	lu12i.w     	\$a0, 0
++			44: R_LARCH_TLS_IE_HI20	TLS1
++  48:	03800084 	ori         	\$a0, \$a0, 0x0
++			48: R_LARCH_TLS_IE_LO12	TLS1
++  4c:	16000004 	lu32i.d     	\$a0, 0
++			4c: R_LARCH_TLS_IE64_LO20	TLS1
++  50:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			50: R_LARCH_TLS_IE64_HI12	TLS1
++  54:	28c00084 	ld.d        	\$a0, \$a0, 0
++  58:	14000004 	lu12i.w     	\$a0, 0
++			58: R_LARCH_TLS_LD_HI20	TLS1
++  5c:	03800084 	ori         	\$a0, \$a0, 0x0
++			5c: R_LARCH_GOT_LO12	TLS1
++  60:	16000004 	lu32i.d     	\$a0, 0
++			60: R_LARCH_GOT64_LO20	TLS1
++  64:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			64: R_LARCH_GOT64_HI12	TLS1
++  68:	14000004 	lu12i.w     	\$a0, 0
++			68: R_LARCH_TLS_GD_HI20	TLS1
++  6c:	03800084 	ori         	\$a0, \$a0, 0x0
++			6c: R_LARCH_GOT_LO12	TLS1
++  70:	16000004 	lu32i.d     	\$a0, 0
++			70: R_LARCH_GOT64_LO20	TLS1
++  74:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			74: R_LARCH_GOT64_HI12	TLS1
+diff --git a/gas/testsuite/gas/loongarch/macro_op_extreme_abs.s b/gas/testsuite/gas/loongarch/macro_op_extreme_abs.s
+new file mode 100644
+index 00000000..eca07006
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/macro_op_extreme_abs.s
+@@ -0,0 +1,9 @@
++.L1:
++la.local    $r4, $r5, .L1
++la.global   $r4, $r5, .L1
++la.pcrel    $r4, .L1
++la.got	    $r4,.L1
++la.tls.le   $r4, TLS1
++la.tls.ie   $r4, TLS1
++la.tls.ld   $r4, TLS1
++la.tls.gd   $r4, TLS1
+diff --git a/gas/testsuite/gas/loongarch/macro_op_large_abs.d b/gas/testsuite/gas/loongarch/macro_op_extreme_pc.d
+similarity index 93%
+rename from gas/testsuite/gas/loongarch/macro_op_large_abs.d
+rename to gas/testsuite/gas/loongarch/macro_op_extreme_pc.d
+index 729e878f..8e4b6e6c 100644
+--- a/gas/testsuite/gas/loongarch/macro_op_large_abs.d
++++ b/gas/testsuite/gas/loongarch/macro_op_extreme_pc.d
+@@ -1,10 +1,9 @@
+-#as:
++#as: -mla-global-with-pcrel
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+ .*:     file format .*
+ 
+-
+ Disassembly of section .text:
+ 
+ 0+ <.L1>:
+@@ -20,16 +19,16 @@ Disassembly of section .text:
+ 			c: R_LARCH_PCALA64_HI12	.L1
+   10:	00109484 	add.d       	\$a0, \$a0, \$a1
+   14:	1a000004 	pcalau12i   	\$a0, 0
+-			14: R_LARCH_GOT_PC_HI20	.L1
++			14: R_LARCH_PCALA_HI20	.L1
+ 			14: R_LARCH_RELAX	\*ABS\*
+   18:	02c00005 	li.d        	\$a1, 0
+-			18: R_LARCH_GOT_PC_LO12	.L1
++			18: R_LARCH_PCALA_LO12	.L1
+ 			18: R_LARCH_RELAX	\*ABS\*
+   1c:	16000005 	lu32i.d     	\$a1, 0
+-			1c: R_LARCH_GOT64_PC_LO20	.L1
++			1c: R_LARCH_PCALA64_LO20	.L1
+   20:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			20: R_LARCH_GOT64_PC_HI12	.L1
+-  24:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++			20: R_LARCH_PCALA64_HI12	.L1
++  24:	00109484 	add.d       	\$a0, \$a0, \$a1
+   28:	1a000004 	pcalau12i   	\$a0, 0
+ 			28: R_LARCH_PCALA_HI20	.L1
+ 			28: R_LARCH_RELAX	\*ABS\*
+diff --git a/gas/testsuite/gas/loongarch/macro_op_extreme_pc.s b/gas/testsuite/gas/loongarch/macro_op_extreme_pc.s
+new file mode 100644
+index 00000000..4c685b5b
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/macro_op_extreme_pc.s
+@@ -0,0 +1,9 @@
++.L1:
++la.local    $r4, $r5, .L1
++la.global   $r4, $r5, .L1
++la.pcrel    $r4, $r5, .L1
++la.got	    $r4, $r5, .L1
++la.tls.le   $r4, TLS1
++la.tls.ie   $r4, $r5, TLS1
++la.tls.ld   $r4, $r5, TLS1
++la.tls.gd   $r4, $r5, TLS1
+diff --git a/gas/testsuite/gas/loongarch/macro_op_large_abs.s b/gas/testsuite/gas/loongarch/macro_op_large_abs.s
+deleted file mode 100644
+index fd76391d..00000000
+--- a/gas/testsuite/gas/loongarch/macro_op_large_abs.s
++++ /dev/null
+@@ -1,9 +0,0 @@
+-.L1:
+-la.local  $r4, $r5, .L1
+-la.global  $r4, $r5, .L1
+-la.pcrel  $r4, $r5, .L1
+-la.got  $r4, $r5, .L1
+-la.tls.le  $r4, TLS1
+-la.tls.ie  $r4, $r5, TLS1
+-la.tls.ld  $r4, $r5, TLS1
+-la.tls.gd  $r4, $r5, TLS1
+diff --git a/gas/testsuite/gas/loongarch/macro_op_large_pc.d b/gas/testsuite/gas/loongarch/macro_op_large_pc.d
+deleted file mode 100644
+index 729e878f..00000000
+--- a/gas/testsuite/gas/loongarch/macro_op_large_pc.d
++++ /dev/null
+@@ -1,89 +0,0 @@
+-#as:
+-#objdump: -dr
+-#skip: loongarch32-*-*
+-
+-.*:     file format .*
+-
+-
+-Disassembly of section .text:
+-
+-0+ <.L1>:
+-   0:	1a000004 	pcalau12i   	\$a0, 0
+-			0: R_LARCH_PCALA_HI20	.L1
+-			0: R_LARCH_RELAX	\*ABS\*
+-   4:	02c00005 	li.d        	\$a1, 0
+-			4: R_LARCH_PCALA_LO12	.L1
+-			4: R_LARCH_RELAX	\*ABS\*
+-   8:	16000005 	lu32i.d     	\$a1, 0
+-			8: R_LARCH_PCALA64_LO20	.L1
+-   c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			c: R_LARCH_PCALA64_HI12	.L1
+-  10:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  14:	1a000004 	pcalau12i   	\$a0, 0
+-			14: R_LARCH_GOT_PC_HI20	.L1
+-			14: R_LARCH_RELAX	\*ABS\*
+-  18:	02c00005 	li.d        	\$a1, 0
+-			18: R_LARCH_GOT_PC_LO12	.L1
+-			18: R_LARCH_RELAX	\*ABS\*
+-  1c:	16000005 	lu32i.d     	\$a1, 0
+-			1c: R_LARCH_GOT64_PC_LO20	.L1
+-  20:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			20: R_LARCH_GOT64_PC_HI12	.L1
+-  24:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  28:	1a000004 	pcalau12i   	\$a0, 0
+-			28: R_LARCH_PCALA_HI20	.L1
+-			28: R_LARCH_RELAX	\*ABS\*
+-  2c:	02c00005 	li.d        	\$a1, 0
+-			2c: R_LARCH_PCALA_LO12	.L1
+-			2c: R_LARCH_RELAX	\*ABS\*
+-  30:	16000005 	lu32i.d     	\$a1, 0
+-			30: R_LARCH_PCALA64_LO20	.L1
+-  34:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			34: R_LARCH_PCALA64_HI12	.L1
+-  38:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  3c:	1a000004 	pcalau12i   	\$a0, 0
+-			3c: R_LARCH_GOT_PC_HI20	.L1
+-			3c: R_LARCH_RELAX	\*ABS\*
+-  40:	02c00005 	li.d        	\$a1, 0
+-			40: R_LARCH_GOT_PC_LO12	.L1
+-			40: R_LARCH_RELAX	\*ABS\*
+-  44:	16000005 	lu32i.d     	\$a1, 0
+-			44: R_LARCH_GOT64_PC_LO20	.L1
+-  48:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			48: R_LARCH_GOT64_PC_HI12	.L1
+-  4c:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  50:	14000004 	lu12i.w     	\$a0, 0
+-			50: R_LARCH_TLS_LE_HI20	TLS1
+-  54:	03800084 	ori         	\$a0, \$a0, 0x0
+-			54: R_LARCH_TLS_LE_LO12	TLS1
+-  58:	1a000004 	pcalau12i   	\$a0, 0
+-			58: R_LARCH_TLS_IE_PC_HI20	TLS1
+-  5c:	02c00005 	li.d        	\$a1, 0
+-			5c: R_LARCH_TLS_IE_PC_LO12	TLS1
+-  60:	16000005 	lu32i.d     	\$a1, 0
+-			60: R_LARCH_TLS_IE64_PC_LO20	TLS1
+-  64:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			64: R_LARCH_TLS_IE64_PC_HI12	TLS1
+-  68:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  6c:	1a000004 	pcalau12i   	\$a0, 0
+-			6c: R_LARCH_TLS_LD_PC_HI20	TLS1
+-			6c: R_LARCH_RELAX	\*ABS\*
+-  70:	02c00005 	li.d        	\$a1, 0
+-			70: R_LARCH_GOT_PC_LO12	TLS1
+-			70: R_LARCH_RELAX	\*ABS\*
+-  74:	16000005 	lu32i.d     	\$a1, 0
+-			74: R_LARCH_GOT64_PC_LO20	TLS1
+-  78:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			78: R_LARCH_GOT64_PC_HI12	TLS1
+-  7c:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  80:	1a000004 	pcalau12i   	\$a0, 0
+-			80: R_LARCH_TLS_GD_PC_HI20	TLS1
+-			80: R_LARCH_RELAX	\*ABS\*
+-  84:	02c00005 	li.d        	\$a1, 0
+-			84: R_LARCH_GOT_PC_LO12	TLS1
+-			84: R_LARCH_RELAX	\*ABS\*
+-  88:	16000005 	lu32i.d     	\$a1, 0
+-			88: R_LARCH_GOT64_PC_LO20	TLS1
+-  8c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			8c: R_LARCH_GOT64_PC_HI12	TLS1
+-  90:	00109484 	add.d       	\$a0, \$a0, \$a1
+diff --git a/gas/testsuite/gas/loongarch/macro_op_large_pc.s b/gas/testsuite/gas/loongarch/macro_op_large_pc.s
+deleted file mode 100644
+index fd76391d..00000000
+--- a/gas/testsuite/gas/loongarch/macro_op_large_pc.s
++++ /dev/null
+@@ -1,9 +0,0 @@
+-.L1:
+-la.local  $r4, $r5, .L1
+-la.global  $r4, $r5, .L1
+-la.pcrel  $r4, $r5, .L1
+-la.got  $r4, $r5, .L1
+-la.tls.le  $r4, TLS1
+-la.tls.ie  $r4, $r5, TLS1
+-la.tls.ld  $r4, $r5, TLS1
+-la.tls.gd  $r4, $r5, TLS1
+diff --git a/opcodes/loongarch-opc.c b/opcodes/loongarch-opc.c
+index 44b5f612..cc3d1986 100644
+--- a/opcodes/loongarch-opc.c
++++ b/opcodes/loongarch-opc.c
+@@ -171,7 +171,7 @@ const char *const loongarch_x_normal_name[32] =
+   "lu32i.d %1,%%got64_lo20(%2);"    \
+   "lu52i.d %1,%1,%%got64_hi12(%2);" \
+   "ld.d %1,%1,0",		    \
+-  &LARCH_opts.ase_lp64,		    \
++  &LARCH_opts.ase_gabs,		    \
+   &LARCH_opts.ase_gpcr
+ /* got64 pic.  */
+ #define INSN_LA_GOT64_LARGE_PCREL     \
+@@ -229,7 +229,7 @@ const char *const loongarch_x_normal_name[32] =
+   "lu32i.d %1,%%ie64_lo20(%2);"	    \
+   "lu52i.d %1,%1,%%ie64_hi12(%2);"  \
+   "ld.d %1,%1,0",		    \
+-  &LARCH_opts.ase_lp64,		    \
++  &LARCH_opts.ase_gabs,		    \
+   &LARCH_opts.ase_gpcr
+ 
+ /* For LoongArch32/64 cmode=normal.  */
+@@ -260,7 +260,7 @@ const char *const loongarch_x_normal_name[32] =
+   "ori %1,%1,%%got_lo12(%2);"	      \
+   "lu32i.d %1,%%got64_lo20(%2);"      \
+   "lu52i.d %1,%1,%%got64_hi12(%2);",  \
+-  &LARCH_opts.ase_lp64,		      \
++  &LARCH_opts.ase_gabs,		      \
+   &LARCH_opts.ase_gpcr
+ 
+ #define INSN_LA_TLS_GD32	      \
+@@ -290,7 +290,7 @@ const char *const loongarch_x_normal_name[32] =
+   "ori %1,%1,%%got_lo12(%2);"	      \
+   "lu32i.d %1,%%got64_lo20(%2);"      \
+   "lu52i.d %1,%1,%%got64_hi12(%2);",  \
+-  &LARCH_opts.ase_lp64,		      \
++  &LARCH_opts.ase_gabs,		      \
+   &LARCH_opts.ase_gpcr
+ 
+ #define INSN_LA_CALL		      \
+@@ -376,27 +376,27 @@ static struct loongarch_opcode loongarch_macro_opcodes[] =
+   { 0, 0, "la.pcrel",	"r,la",	  INSN_LA_PCREL32,		0 },
+   { 0, 0, "la.pcrel",	"r,la",	  INSN_LA_PCREL64,		0 },
+   { 0, 0, "la.pcrel",	"r,r,la", INSN_LA_PCREL64_LARGE,	0 },
+-  { 0, 0, "la.got",	"r,la",	  INSN_LA_GOT32,		0 },
+   { 0, 0, "la.got",	"r,la",	  INSN_LA_GOT32_ABS,		0 },
+-  { 0, 0, "la.got",	"r,la",	  INSN_LA_GOT64,		0 },
++  { 0, 0, "la.got",	"r,la",	  INSN_LA_GOT32,		0 },
+   { 0, 0, "la.got",	"r,la",	  INSN_LA_GOT64_LARGE_ABS,	0 },
++  { 0, 0, "la.got",	"r,la",	  INSN_LA_GOT64,		0 },
+   { 0, 0, "la.got",	"r,r,la", INSN_LA_GOT64_LARGE_PCREL,	0 },
+   { 0, 0, "la.tls.le",	"r,l",	  INSN_LA_TLS_LE,		0 },
+   { 0, 0, "la.tls.le",	"r,l",	  INSN_LA_TLS_LE64_LARGE,	0 },
+-  { 0, 0, "la.tls.ie",	"r,l",	  INSN_LA_TLS_IE32,		0 },
+   { 0, 0, "la.tls.ie",	"r,l",	  INSN_LA_TLS_IE32_ABS,		0 },
+-  { 0, 0, "la.tls.ie",	"r,l",	  INSN_LA_TLS_IE64,		0 },
++  { 0, 0, "la.tls.ie",	"r,l",	  INSN_LA_TLS_IE32,		0 },
+   { 0, 0, "la.tls.ie",	"r,l",	  INSN_LA_TLS_IE64_LARGE_ABS,	0 },
++  { 0, 0, "la.tls.ie",	"r,l",	  INSN_LA_TLS_IE64,		0 },
+   { 0, 0, "la.tls.ie",	"r,r,l",  INSN_LA_TLS_IE64_LARGE_PCREL,	0 },
+-  { 0, 0, "la.tls.ld",	"r,l",	  INSN_LA_TLS_LD32,		0 },
+   { 0, 0, "la.tls.ld",	"r,l",	  INSN_LA_TLS_LD32_ABS,		0 },
+-  { 0, 0, "la.tls.ld",	"r,l",	  INSN_LA_TLS_LD64,		0 },
++  { 0, 0, "la.tls.ld",	"r,l",	  INSN_LA_TLS_LD32,		0 },
+   { 0, 0, "la.tls.ld",	"r,l",	  INSN_LA_TLS_LD64_LARGE_ABS,	0 },
++  { 0, 0, "la.tls.ld",	"r,l",	  INSN_LA_TLS_LD64,		0 },
+   { 0, 0, "la.tls.ld",	"r,r,l",  INSN_LA_TLS_LD64_LARGE_PCREL,	0 },
+-  { 0, 0, "la.tls.gd",	"r,l",	  INSN_LA_TLS_GD32,		0 },
+   { 0, 0, "la.tls.gd",	"r,l",	  INSN_LA_TLS_GD32_ABS,		0 },
+-  { 0, 0, "la.tls.gd",	"r,l",	  INSN_LA_TLS_GD64,		0 },
++  { 0, 0, "la.tls.gd",	"r,l",	  INSN_LA_TLS_GD32,		0 },
+   { 0, 0, "la.tls.gd",	"r,l",	  INSN_LA_TLS_GD64_LARGE_ABS,	0 },
++  { 0, 0, "la.tls.gd",	"r,l",	  INSN_LA_TLS_GD64,		0 },
+   { 0, 0, "la.tls.gd",	"r,r,l",  INSN_LA_TLS_GD64_LARGE_PCREL,	0 },
+   { 0, 0, "call36",	"la",	  INSN_LA_CALL,			0 },
+   { 0, 0, "tail36",	"r,la",	  INSN_LA_TAIL,			0 },
+-- 
+2.33.0
+

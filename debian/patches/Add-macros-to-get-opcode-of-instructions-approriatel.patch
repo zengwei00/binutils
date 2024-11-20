@@ -1,0 +1,599 @@
+From 52fc0adff846e7fb01fd2995b5520e4194287489 Mon Sep 17 00:00:00 2001
+From: Xin Wang <yw987194828@gmail.com>
+Date: Fri, 6 Sep 2024 08:54:07 +0800
+Subject: [PATCH 112/123] Add macros to get opcode of instructions approriately
+
+LoongArch: Add macros to get opcode and register of instructions appropriately
+
+Currently, we get opcode of an instruction by manipulate the binary with
+it's mask, it's a bit of a pain. Now a macro is defined to do this and a
+macro to get the RD and RJ registers which is applicable to most instructions
+of LoongArch are added.
+---
+ bfd/elfnn-loongarch.c                         |  62 +++---
+ gas/config/tc-loongarch.c                     |  36 +--
+ gas/testsuite/gas/loongarch/illegal-operand.l | 208 +++++++++---------
+ include/opcode/loongarch.h                    |  70 +++++-
+ 4 files changed, 216 insertions(+), 160 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 30ac5555..770483cd 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -4064,7 +4064,7 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	  /* For 2G jump, generate pcalau12i, jirl.  */
+ 	  /* If use jirl, turns to R_LARCH_B16.  */
+ 	  uint32_t insn = bfd_get (32, input_bfd, contents + rel->r_offset);
+-	  if ((insn & 0x4c000000) == 0x4c000000)
++	  if (LARCH_INSN_JIRL(insn))
+ 	    {
+ 	      relocation &= 0xfff;
+ 	      /* Signed extend.  */
+@@ -4704,7 +4704,7 @@ loongarch_tls_perform_trans (bfd *abfd, asection *sec,
+ 	       pcalalau12i $a0,%desc_pc_hi20(var) =>
+ 	       lu12i.w $a0,%le_hi20(var)
+ 	    */
+-	    bfd_put (32, abfd, LARCH_LU12I_W | LARCH_RD_A0,
++	    bfd_put (32, abfd, LARCH_OP_LU12I_W | LARCH_RD_A0,
+ 		contents + rel->r_offset);
+ 	    rel->r_info = ELFNN_R_INFO (r_symndx, R_LARCH_TLS_LE_HI20);
+ 	  }
+@@ -4725,8 +4725,8 @@ loongarch_tls_perform_trans (bfd *abfd, asection *sec,
+ 	       addi.d $a0,$a0,%desc_pc_lo12(var) =>
+ 	       ori  $a0,$a0,le_lo12(var)
+ 	    */
+-	    insn = LARCH_ORI | LARCH_RD_RJ_A0;
+-	    bfd_put (32, abfd, LARCH_ORI | LARCH_RD_RJ_A0,
++	    insn = LARCH_OP_ORI | LARCH_RD_RJ_A0;
++	    bfd_put (32, abfd, LARCH_OP_ORI | LARCH_RD_RJ_A0,
+ 		contents + rel->r_offset);
+ 	    rel->r_info = ELFNN_R_INFO (r_symndx, R_LARCH_TLS_LE_LO12);
+ 	  }
+@@ -4736,7 +4736,7 @@ loongarch_tls_perform_trans (bfd *abfd, asection *sec,
+ 	       addi.d $a0,$a0,%desc_pc_lo12(var) =>
+ 	       ld.d $a0,$a0,%ie_pc_lo12(var)
+ 	    */
+-	    bfd_put (32, abfd, LARCH_LD_D | LARCH_RD_RJ_A0,
++	    bfd_put (32, abfd, LARCH_OP_LD_D | LARCH_RD_RJ_A0,
+ 		contents + rel->r_offset);
+ 	    rel->r_info = ELFNN_R_INFO (r_symndx, R_LARCH_TLS_IE_PC_LO12);
+ 	  }
+@@ -4763,7 +4763,7 @@ loongarch_tls_perform_trans (bfd *abfd, asection *sec,
+ 	       lu12i.w $rd,%le_hi20(var)
+ 	    */
+ 	    insn = bfd_getl32 (contents + rel->r_offset);
+-	    bfd_put (32, abfd, LARCH_LU12I_W | (insn & 0x1f),
++	    bfd_put (32, abfd, LARCH_OP_LU12I_W | LARCH_GET_RD(insn),
+ 		contents + rel->r_offset);
+ 	    rel->r_info = ELFNN_R_INFO (r_symndx, R_LARCH_TLS_LE_HI20);
+ 	  }
+@@ -4777,7 +4777,7 @@ loongarch_tls_perform_trans (bfd *abfd, asection *sec,
+ 	       ori  $rd,$rj,le_lo12(var)
+ 	    */
+ 	    insn = bfd_getl32 (contents + rel->r_offset);
+-	    bfd_put (32, abfd, LARCH_ORI | (insn & 0x3ff),
++	    bfd_put (32, abfd, LARCH_OP_ORI | (insn & 0x3ff),
+ 		contents + rel->r_offset);
+ 	    rel->r_info = ELFNN_R_INFO (r_symndx, R_LARCH_TLS_LE_LO12);
+ 	  }
+@@ -4875,11 +4875,11 @@ loongarch_relax_tls_le (bfd *abfd, asection *sec,
+ 		/* Change rj to $tp.  */
+ 		insn_rj = 0x2 << 5;
+ 		/* Get rd register.  */
+-		insn_rd = insn & 0x1f;
++		insn_rd = LARCH_GET_RD(insn);
+ 		/* Write symbol offset.  */
+ 		symval <<= 10;
+ 		/* Writes the modified instruction.  */
+-		insn = insn & 0xffc00000;
++		insn = insn & LARCH_MK_ADDI_D;
+ 		insn = insn | symval | insn_rj | insn_rd;
+ 		bfd_put (32, abfd, insn, contents + rel->r_offset);
+ 	      }
+@@ -4894,7 +4894,7 @@ loongarch_relax_tls_le (bfd *abfd, asection *sec,
+ 	    break;
+ 
+ 	  case R_LARCH_TLS_LE_LO12:
+-	    bfd_put (32, abfd, LARCH_ORI | (insn & 0x1f),
++	    bfd_put (32, abfd, LARCH_OP_ORI | LARCH_GET_RD(insn),
+ 		    contents + rel->r_offset);
+ 	    break;
+ 
+@@ -4940,7 +4940,7 @@ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+   Elf_Internal_Rela *rel_lo = rel_hi + 2;
+   uint32_t pca = bfd_get (32, abfd, contents + rel_hi->r_offset);
+   uint32_t add = bfd_get (32, abfd, contents + rel_lo->r_offset);
+-  uint32_t rd = pca & 0x1f;
++  uint32_t rd = LARCH_GET_RD(pca);
+ 
+   /* This section's output_offset need to subtract the bytes of instructions
+      relaxed by the previous sections, so it needs to be updated beforehand.
+@@ -4961,18 +4961,17 @@ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+   else if (symval < pc)
+     pc += (max_alignment > 4 ? max_alignment : 0);
+ 
+-  const uint32_t addi_d = 0x02c00000;
+-  const uint32_t pcaddi = 0x18000000;
++  const uint32_t pcaddi = LARCH_OP_PCADDI;
+ 
+   /* Is pcalau12i + addi.d insns?  */
+   if ((ELFNN_R_TYPE (rel_lo->r_info) != R_LARCH_PCALA_LO12)
+       || (ELFNN_R_TYPE ((rel_lo + 1)->r_info) != R_LARCH_RELAX)
+       || (ELFNN_R_TYPE ((rel_hi + 1)->r_info) != R_LARCH_RELAX)
+       || (rel_hi->r_offset + 4 != rel_lo->r_offset)
+-      || ((add & addi_d) != addi_d)
++      || !LARCH_INSN_ADDI_D(add)
+       /* Is pcalau12i $rd + addi.d $rd,$rd?  */
+-      || ((add & 0x1f) != rd)
+-      || (((add >> 5) & 0x1f) != rd)
++      || (LARCH_GET_RD(add) != rd)
++      || (LARCH_GET_RJ(add) != rd)
+       /* Can be relaxed to pcaddi?  */
+       || (symval & 0x3) /* 4 bytes align.  */
+       || ((bfd_signed_vma)(symval - pc) < (bfd_signed_vma)(int32_t)0xffe00000)
+@@ -5005,7 +5004,7 @@ loongarch_relax_call36 (bfd *abfd, asection *sec, asection *sym_sec,
+ {
+   bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
+   uint32_t jirl = bfd_get (32, abfd, contents + rel->r_offset + 4);
+-  uint32_t rd = jirl & 0x1f;
++  uint32_t rd = LARCH_GET_RD(jirl);
+ 
+   /* This section's output_offset need to subtract the bytes of instructions
+      relaxed by the previous sections, so it needs to be updated beforehand.
+@@ -5026,11 +5025,10 @@ loongarch_relax_call36 (bfd *abfd, asection *sec, asection *sym_sec,
+   else if (symval < pc)
+     pc += (max_alignment > 4 ? max_alignment : 0);
+ 
+-  const uint32_t jirl_opcode = 0x4c000000;
+ 
+   /* Is pcalau12i + addi.d insns?  */
+   if ((ELFNN_R_TYPE ((rel + 1)->r_info) != R_LARCH_RELAX)
+-      || ((jirl & jirl_opcode) != jirl_opcode)
++      || !LARCH_INSN_JIRL(jirl)
+       || ((bfd_signed_vma)(symval - pc) < (bfd_signed_vma)(int32_t)0xf8000000)
+       || ((bfd_signed_vma)(symval - pc) > (bfd_signed_vma)(int32_t)0x7fffffc))
+     return false;
+@@ -5038,8 +5036,8 @@ loongarch_relax_call36 (bfd *abfd, asection *sec, asection *sym_sec,
+   /* Continue next relax trip.  */
+   *again = true;
+ 
+-  const uint32_t bl = 0x54000000;
+-  const uint32_t b = 0x50000000;
++  const uint32_t bl = LARCH_OP_BL;
++  const uint32_t b = LARCH_OP_B;
+ 
+   if (rd)
+     bfd_put (32, abfd, bl, contents + rel->r_offset);
+@@ -5062,17 +5060,16 @@ loongarch_relax_pcala_ld (bfd *abfd, asection *sec,
+   Elf_Internal_Rela *rel_lo = rel_hi + 2;
+   uint32_t pca = bfd_get (32, abfd, contents + rel_hi->r_offset);
+   uint32_t ld = bfd_get (32, abfd, contents + rel_lo->r_offset);
+-  uint32_t rd = pca & 0x1f;
+-  const uint32_t ld_d = 0x28c00000;
+-  uint32_t addi_d = 0x02c00000;
++  uint32_t rd = LARCH_GET_RD(pca);
++  uint32_t addi_d = LARCH_OP_ADDI_D;
+ 
+   if ((ELFNN_R_TYPE (rel_lo->r_info) != R_LARCH_GOT_PC_LO12)
+       || (ELFNN_R_TYPE ((rel_lo + 1)->r_info) != R_LARCH_RELAX)
+       || (ELFNN_R_TYPE ((rel_hi + 1)->r_info) != R_LARCH_RELAX)
+       || (rel_hi->r_offset + 4 != rel_lo->r_offset)
+-      || ((ld & 0x1f) != rd)
+-      || (((ld >> 5) & 0x1f) != rd)
+-      || ((ld & ld_d) != ld_d))
++      || (LARCH_GET_RD(ld) != rd)
++      || (LARCH_GET_RJ(ld) != rd)
++      || !LARCH_INSN_LD_D(ld))
+     return false;
+ 
+   addi_d = addi_d | (rd << 5) | rd;
+@@ -5165,7 +5162,7 @@ loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
+   Elf_Internal_Rela *rel_lo = rel_hi + 2;
+   uint32_t pca = bfd_get (32, abfd, contents + rel_hi->r_offset);
+   uint32_t add = bfd_get (32, abfd, contents + rel_lo->r_offset);
+-  uint32_t rd = pca & 0x1f;
++  uint32_t rd = LARCH_GET_RD(pca);
+ 
+   /* This section's output_offset need to subtract the bytes of instructions
+      relaxed by the previous sections, so it needs to be updated beforehand.
+@@ -5186,8 +5183,7 @@ loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
+   else if (symval < pc)
+     pc += (max_alignment > 4 ? max_alignment : 0);
+ 
+-  const uint32_t addi_d = 0x02c00000;
+-  const uint32_t pcaddi = 0x18000000;
++  const uint32_t pcaddi = LARCH_OP_PCADDI;
+ 
+   /* Is pcalau12i + addi.d insns?  */
+   if ((ELFNN_R_TYPE (rel_lo->r_info) != R_LARCH_GOT_PC_LO12
+@@ -5195,10 +5191,10 @@ loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
+       || (ELFNN_R_TYPE ((rel_lo + 1)->r_info) != R_LARCH_RELAX)
+       || (ELFNN_R_TYPE ((rel_hi + 1)->r_info) != R_LARCH_RELAX)
+       || (rel_hi->r_offset + 4 != rel_lo->r_offset)
+-      || ((add & addi_d) != addi_d)
++      || !LARCH_INSN_ADDI_D(add)
+       /* Is pcalau12i $rd + addi.d $rd,$rd?  */
+-      || ((add & 0x1f) != rd)
+-      || (((add >> 5) & 0x1f) != rd)
++      || (LARCH_GET_RD(add) != rd)
++      || (LARCH_GET_RJ(add) != rd)
+       /* Can be relaxed to pcaddi?  */
+       || (symval & 0x3) /* 4 bytes align.  */
+       || ((bfd_signed_vma)(symval - pc) < (bfd_signed_vma)(int32_t)0xffe00000)
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 16355cac..046e198f 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -1078,34 +1078,34 @@ check_this_insn_before_appending (struct loongarch_cl_insn *ip)
+       ip->reloc_info[ip->reloc_num].value = const_0;
+       ip->reloc_num++;
+     }
+-  else if (ip->insn->mask == 0xffff8000
+-	   /* amcas.b  rd, rk, rj  */
+-	   && ((ip->insn_bin & 0xfff80000) == 0x38580000
+-	       /* amswap.w  rd, rk, rj  */
+-	       || (ip->insn_bin & 0xfff00000) == 0x38600000
+-	       /* ammax_db.wu  rd, rk, rj  */
+-	       || (ip->insn_bin & 0xffff0000) == 0x38700000
+-	       /* ammin_db.wu  rd, rk, rj  */
+-	       || (ip->insn_bin & 0xffff0000) == 0x38710000))
++  /* check all atomic memory insns */
++  else if (ip->insn->mask == LARCH_MK_ATOMIC_MEM
++	   && LARCH_INSN_ATOMIC_MEM(ip->insn_bin))
+     {
+       /* For AMO insn amswap.[wd], amadd.[wd], etc.  */
+       if (ip->args[0] != 0
+ 	  && (ip->args[0] == ip->args[1] || ip->args[0] == ip->args[2]))
+-	as_bad (_("automic memory operations insns require rd != rj"
++	as_bad (_("atomic memory operations insns require rd != rj"
+ 		  " && rd != rk when rd isn't r0"));
+     }
+-  else if ((ip->insn->mask == 0xffe08000
+-	    /* bstrins.w  rd, rj, msbw, lsbw  */
+-	    && (ip->insn_bin & 0xffe00000) == 0x00600000)
+-	   || (ip->insn->mask == 0xffc00000
+-	       /* bstrins.d  rd, rj, msbd, lsbd  */
+-	       && (ip->insn_bin & 0xff800000) == 0x00800000))
++  else if ((ip->insn->mask == LARCH_MK_BSTRINS_W
++	    /* bstr(ins|pick).w  rd, rj, msbw, lsbw  */
++	    && (LARCH_INSN_BSTRINS_W(ip->insn_bin)
++		|| LARCH_INSN_BSTRPICK_W(ip->insn_bin)))
++	   || (ip->insn->mask == LARCH_MK_BSTRINS_D
++	       /* bstr(ins|pick).d  rd, rj, msbd, lsbd  */
++	       && (LARCH_INSN_BSTRINS_D(ip->insn_bin)
++		   || LARCH_INSN_BSTRPICK_D(ip->insn_bin))))
+     {
+       /* For bstr(ins|pick).[wd].  */
+       if (ip->args[2] < ip->args[3])
+ 	as_bad (_("bstr(ins|pick).[wd] require msbd >= lsbd"));
+     }
+-  else if (ip->insn->mask != 0 && (ip->insn_bin & 0xfe0003c0) == 0x04000000
++  else if (ip->insn->mask != 0
++	   && (LARCH_INSN_CSRXCHG(ip->insn_bin)
++	       || LARCH_INSN_GCSRXCHG(ip->insn_bin))
++	   && (LARCH_GET_RJ(ip->insn_bin) == 0
++	       || LARCH_GET_RJ(ip->insn_bin) == 1)
+ 	   /* csrxchg  rd, rj, csr_num  */
+ 	   && (strcmp ("csrxchg", ip->name) == 0
+ 	       || strcmp ("gcsrxchg", ip->name) == 0))
+@@ -2207,7 +2207,7 @@ loongarch_convert_frag_branch (fragS *fragp)
+     case RELAX_BRANCH_26:
+       insn = bfd_getl32 (buf);
+       /* Invert the branch condition.  */
+-      if (LARCH_FLOAT_BRANCH == (insn & LARCH_BRANCH_OPCODE_MASK))
++      if (LARCH_INSN_FLOAT_BRANCH(insn))
+ 	insn ^= LARCH_FLOAT_BRANCH_INVERT_BIT;
+       else
+ 	insn ^= LARCH_BRANCH_INVERT_BIT;
+diff --git a/gas/testsuite/gas/loongarch/illegal-operand.l b/gas/testsuite/gas/loongarch/illegal-operand.l
+index dddc6d6f..33e859c7 100644
+--- a/gas/testsuite/gas/loongarch/illegal-operand.l
++++ b/gas/testsuite/gas/loongarch/illegal-operand.l
+@@ -1,108 +1,108 @@
+ .*: Assembler messages:
+-.*:2: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:3: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:4: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:5: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:6: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:7: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:8: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:9: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:10: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:11: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:12: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:13: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:14: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:15: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:16: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:17: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:18: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:19: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:20: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:21: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:22: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:23: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:24: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:25: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:26: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:27: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:28: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:29: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:30: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:31: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:32: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:33: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:34: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:35: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:36: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:37: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:38: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:39: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:40: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:41: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:42: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:43: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:44: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:45: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:46: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:47: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:48: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:49: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:50: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:51: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:52: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:53: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:54: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:55: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:56: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:57: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:58: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:59: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:60: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:61: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:62: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:63: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:64: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:65: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:66: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:67: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:68: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:69: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:70: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:71: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:72: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:73: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:74: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:75: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:76: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:77: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:78: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:79: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:80: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:81: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:82: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:83: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:84: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:85: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:86: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:87: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:88: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:89: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:90: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:91: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:92: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:93: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:94: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:95: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:96: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:97: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:98: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:99: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:100: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:101: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:102: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:103: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:104: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
+-.*:105: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:2: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:3: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:4: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:5: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:6: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:7: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:8: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:9: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:10: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:11: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:12: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:13: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:14: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:15: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:16: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:17: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:18: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:19: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:20: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:21: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:22: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:23: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:24: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:25: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:26: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:27: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:28: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:29: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:30: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:31: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:32: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:33: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:34: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:35: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:36: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:37: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:38: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:39: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:40: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:41: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:42: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:43: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:44: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:45: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:46: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:47: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:48: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:49: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:50: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:51: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:52: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:53: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:54: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:55: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:56: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:57: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:58: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:59: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:60: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:61: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:62: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:63: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:64: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:65: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:66: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:67: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:68: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:69: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:70: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:71: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:72: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:73: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:74: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:75: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:76: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:77: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:78: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:79: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:80: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:81: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:82: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:83: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:84: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:85: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:86: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:87: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:88: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:89: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:90: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:91: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:92: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:93: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:94: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:95: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:96: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:97: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:98: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:99: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:100: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:101: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:102: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:103: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:104: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:105: Error: atomic memory operations insns require rd != rj && rd != rk when rd isn't r0
+ .*:108: Error: bstr\(ins\|pick\)\.\[wd\] require msbd >= lsbd
+ .*:109: Error: bstr\(ins\|pick\)\.\[wd\] require msbd >= lsbd
+ .*:110: Error: bstr\(ins\|pick\)\.\[wd\] require msbd >= lsbd
+diff --git a/include/opcode/loongarch.h b/include/opcode/loongarch.h
+index 024ba99c..1dbc16fc 100644
+--- a/include/opcode/loongarch.h
++++ b/include/opcode/loongarch.h
+@@ -31,22 +31,82 @@ extern "C"
+   #define LARCH_NOP 0x03400000
+   #define LARCH_B 0x50000000
+   /* BCEQZ/BCNEZ.  */
+-  #define LARCH_FLOAT_BRANCH 0x48000000
+-  #define LARCH_BRANCH_OPCODE_MASK 0xfc000000
+   #define LARCH_BRANCH_INVERT_BIT 0x04000000
+   #define LARCH_FLOAT_BRANCH_INVERT_BIT 0x00000100
+ 
++  #define LARCH_MK_ADDI_D 0xffc00000
++  #define LARCH_OP_ADDI_D 0x02c00000
++  #define LARCH_MK_PCADDI 0xfe000000
++  #define LARCH_OP_PCADDI 0x18000000
++  #define LARCH_MK_B 0xfc000000
++  #define LARCH_OP_B 0x50000000
++  #define LARCH_MK_BL 0xfc000000
++  #define LARCH_OP_BL 0x54000000
++  #define LARCH_MK_ORI 0xffc00000
++  #define LARCH_OP_ORI 0x03800000
++  #define LARCH_MK_LU12I_W 0xfe000000
++  #define LARCH_OP_LU12I_W 0x14000000
++  #define LARCH_MK_LD_D 0xffc00000
++  #define LARCH_OP_LD_D 0x28c00000
++  #define LARCH_MK_JIRL 0xfc000000
++  #define LARCH_OP_JIRL 0x4c000000
++  #define LARCH_MK_BCEQZ 0xfc000300
++  #define LARCH_OP_BCEQZ 0x48000000
++  #define LARCH_MK_BCNEZ 0xfc000300
++  #define LARCH_OP_BCNEZ 0x48000100
++  #define LARCH_MK_ATOMIC_MEM 0xffff8000
++  #define LARCH_MK_BSTRINS_W 0xffe08000
++  #define LARCH_OP_BSTRINS_W 0x00600000
++  #define LARCH_MK_BSTRPICK_W 0xffe08000
++  #define LARCH_OP_BSTRPICK_W 0x00608000
++  #define LARCH_MK_BSTRINS_D 0xffc00000
++  #define LARCH_OP_BSTRINS_D 0x00800000
++  #define LARCH_MK_BSTRPICK_D 0xffc00000
++  #define LARCH_OP_BSTRPICK_D 0x00c00000
++  #define LARCH_MK_CSRRD 0xff0003e0
++  #define LARCH_OP_CSRRD 0x04000000
++  #define LARCH_MK_CSRWR 0xff0003e0
++  #define LARCH_OP_CSRWR 0x04000020
++  #define LARCH_MK_CSRXCHG 0xff000000
++  #define LARCH_OP_CSRXCHG 0x04000000
++  #define LARCH_MK_GCSRXCHG 0xff000000
++  #define LARCH_OP_GCSRXCHG 0x05000000
++
++  #define LARCH_INSN_OPS(insn, op) ((insn & LARCH_MK_##op) == LARCH_OP_##op)
++  #define LARCH_INSN_ADDI_D(insn) LARCH_INSN_OPS((insn), ADDI_D)
++  #define LARCH_INSN_PCADDI(insn) LARCH_INSN_OPS((insn), PCADDI)
++  #define LARCH_INSN_B(insn) LARCH_INSN_OPS((insn), B)
++  #define LARCH_INSN_BL(insn) LARCH_INSN_OPS((insn), BL)
++  #define LARCH_INSN_ORI(insn) LARCH_INSN_OPS((insn), ORI)
++  #define LARCH_INSN_LU12I_W(insn) LARCH_INSN_OPS((insn), LU12I_W)
++  #define LARCH_INSN_LD_D(insn) LARCH_INSN_OPS((insn), LD_D)
++  #define LARCH_INSN_JIRL(insn) LARCH_INSN_OPS((insn), JIRL)
++  #define LARCH_INSN_BCEQZ(insn) LARCH_INSN_OPS((insn), BCEQZ)
++  #define LARCH_INSN_BCNEZ(insn) LARCH_INSN_OPS((insn), BCNEZ)
++  #define LARCH_INSN_FLOAT_BRANCH(insn) (LARCH_INSN_BCEQZ(insn) || LARCH_INSN_BCNEZ(insn))
++  #define LARCH_INSN_BSTRINS_W(insn) LARCH_INSN_OPS((insn), BSTRINS_W)
++  #define LARCH_INSN_BSTRPICK_W(insn) LARCH_INSN_OPS((insn), BSTRPICK_W)
++  #define LARCH_INSN_BSTRINS_D(insn) LARCH_INSN_OPS((insn), BSTRINS_D)
++  #define LARCH_INSN_BSTRPICK_D(insn) LARCH_INSN_OPS((insn), BSTRPICK_D)
++  #define LARCH_INSN_CSRXCHG(insn) LARCH_INSN_OPS((insn), CSRXCHG)
++  #define LARCH_INSN_GCSRXCHG(insn) LARCH_INSN_OPS((insn), GCSRXCHG)
++
++  #define LARCH_INSN_ATOMIC_MEM(insn)			\
++	((insn & 0xfff80000) == 0x38580000	\
++	 || (insn & 0xfff00000) == 0x38600000	\
++	 || (insn & 0xffff0000) == 0x38700000	\
++	 || (insn & 0xffff0000) == 0x38710000)
++
+   #define ENCODE_BRANCH16_IMM(x) (((x) >> 2) << 10)
+ 
+   #define OUT_OF_RANGE(value, bits, align)	\
+     ((value) < (-(1 << ((bits) - 1) << align)) 	\
+       || (value) > ((((1 << ((bits) - 1)) - 1) << align)))
+ 
+-  #define LARCH_LU12I_W 0x14000000
+-  #define LARCH_ORI 0x03800000
+-  #define LARCH_LD_D 0x28c00000
+   #define LARCH_RD_A0 0x04
+   #define LARCH_RD_RJ_A0 0x084
++  #define LARCH_GET_RD(insn) (insn & 0x1f)
++  #define LARCH_GET_RJ(insn) ((insn >> 5) & 0x1f)
+ 
+   typedef uint32_t insn_t;
+ 
+-- 
+2.33.0
+

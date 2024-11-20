@@ -1,0 +1,55 @@
+From 1f00570084528ffcc4764a7f31307e2b5d233301 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 19 Jun 2024 11:00:36 +0800
+Subject: [PATCH 093/123] LoongArch: Do not check R_LARCH_SOP_PUSH_ABSOLUTE to
+ avoid broken links to old object files
+
+R_LARCH_SOP_PUSH_ABSOLUTE with -fPIC was heavily used in the era of gas-2.38.
+We do not check this relocation to prevent broken links with old object
+files.
+---
+ bfd/elfnn-loongarch.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 51e3d311..840cdd35 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -756,10 +756,6 @@ loongarch_tls_transition (bfd *input_bfd,
+   return loongarch_tls_transition_without_check (info, r_type, h);
+ }
+ 
+-/* Look through the relocs for a section during the first phase, and
+-   allocate space in the global offset table or procedure linkage
+-   table.  */
+-
+ static bool
+ bad_static_reloc (bfd *abfd, const Elf_Internal_Rela *rel, asection *sec,
+ 		  unsigned r_type, struct elf_link_hash_entry *h,
+@@ -787,6 +783,10 @@ bad_static_reloc (bfd *abfd, const Elf_Internal_Rela *rel, asection *sec,
+   return false;
+ }
+ 
++/* Look through the relocs for a section during the first phase, and
++   allocate space in the global offset table or procedure linkage
++   table.  */
++
+ static bool
+ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 			    asection *sec, const Elf_Internal_Rela *relocs)
+@@ -948,10 +948,11 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	  break;
+ 
+ 	case R_LARCH_ABS_HI20:
+-	case R_LARCH_SOP_PUSH_ABSOLUTE:
+ 	  if (bfd_link_pic (info))
+ 	    return bad_static_reloc (abfd, rel, sec, r_type, h, isym);
+ 
++	  /* Fall through.  */
++	case R_LARCH_SOP_PUSH_ABSOLUTE:
+ 	  if (h != NULL)
+ 	    /* If this reloc is in a read-only section, we might
+ 	       need a copy reloc.  We can't check reliably at this
+-- 
+2.33.0
+

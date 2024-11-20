@@ -1,0 +1,307 @@
+From 7904eb84e70187141d105971ff38de06215102cb Mon Sep 17 00:00:00 2001
+From: cailulu <cailulu@loongson.cn>
+Date: Thu, 28 Sep 2023 16:01:53 +0800
+Subject: [PATCH 012/123] Add testsuits for new assembler option of
+ mthin-add-sub.
+
+---
+ gas/testsuite/gas/loongarch/no_thin_add_sub.d | 66 +++++++++++++++++++
+ gas/testsuite/gas/loongarch/no_thin_add_sub.s | 44 +++++++++++++
+ ...pcrel_norelax.d => thin_add_sub_norelax.d} | 25 ++++---
+ ...pcrel_norelax.s => thin_add_sub_norelax.s} |  8 +--
+ .../{pcrel_relax.d => thin_add_sub_relax.d}   | 12 ++--
+ .../{pcrel_relax.s => thin_add_sub_relax.s}   |  0
+ 6 files changed, 131 insertions(+), 24 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/no_thin_add_sub.d
+ create mode 100644 gas/testsuite/gas/loongarch/no_thin_add_sub.s
+ rename gas/testsuite/gas/loongarch/{pcrel_norelax.d => thin_add_sub_norelax.d} (75%)
+ rename gas/testsuite/gas/loongarch/{pcrel_norelax.s => thin_add_sub_norelax.s} (87%)
+ rename gas/testsuite/gas/loongarch/{pcrel_relax.d => thin_add_sub_relax.d} (91%)
+ rename gas/testsuite/gas/loongarch/{pcrel_relax.s => thin_add_sub_relax.s} (100%)
+
+diff --git a/gas/testsuite/gas/loongarch/no_thin_add_sub.d b/gas/testsuite/gas/loongarch/no_thin_add_sub.d
+new file mode 100644
+index 00000000..614aca71
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/no_thin_add_sub.d
+@@ -0,0 +1,66 @@
++#as:
++#objdump: -Dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++00000000.* <.L1>:
++[ 	]+...
++[ 	]+0:[ 	]+R_LARCH_ADD32[ 	]+.L3
++[ 	]+0:[ 	]+R_LARCH_SUB32[ 	]+.L1
++[ 	]+4:[ 	]+R_LARCH_ADD32[ 	]+.L3
++[ 	]+4:[ 	]+R_LARCH_SUB32[ 	]+.L1
++
++0*00000008[ 	]+<.L2>:
++[ 	]+...
++[ 	]+8:[ 	]+R_LARCH_ADD64[ 	]+.L3
++[ 	]+8:[ 	]+R_LARCH_SUB64[ 	]+.L2
++[ 	]+10:[ 	]+R_LARCH_ADD64[ 	]+.L3
++[ 	]+10:[ 	]+R_LARCH_SUB64[ 	]+.L2
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sx:
++
++0*00000000[ 	]+<.L3>:
++[ 	]+0:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+8:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
++
++0*0000000c[ 	]+<.L4>:
++[ 	]+...
++[ 	]+c:[ 	]+R_LARCH_ADD32[ 	]+.L4
++[ 	]+c:[ 	]+R_LARCH_SUB32[ 	]+.L5
++[ 	]+10:[ 	]+R_LARCH_ADD64[ 	]+.L4
++[ 	]+10:[ 	]+R_LARCH_SUB64[ 	]+.L5
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sy:
++
++0*00000000[ 	]+<.L5>:
++[ 	]+...
++[ 	]+0:[ 	]+R_LARCH_ADD32[ 	]+.L1
++[ 	]+0:[ 	]+R_LARCH_SUB32[ 	]+.L5
++[ 	]+4:[ 	]+R_LARCH_ADD32[ 	]+.L3
++[ 	]+4:[ 	]+R_LARCH_SUB32[ 	]+.L5
++[ 	]+8:[ 	]+R_LARCH_ADD64[ 	]+.L1
++[ 	]+8:[ 	]+R_LARCH_SUB64[ 	]+.L5
++[ 	]+10:[ 	]+R_LARCH_ADD64[ 	]+.L3
++[ 	]+10:[ 	]+R_LARCH_SUB64[ 	]+.L5
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sz:
++
++0*00000000[ 	]+<sz>:
++[ 	]+0:[ 	]+00000000[ 	]+.word[ 	]+0x00000000
++[ 	]+0:[ 	]+R_LARCH_ADD32[ 	]+.L1
++[ 	]+0:[ 	]+R_LARCH_SUB32[ 	]+.L2
++[ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+...
++[ 	]+8:[ 	]+R_LARCH_ADD32[ 	]+.L3
++[ 	]+8:[ 	]+R_LARCH_SUB32[ 	]+.L5
++[ 	]+c:[ 	]+R_LARCH_ADD64[ 	]+.L1
++[ 	]+c:[ 	]+R_LARCH_SUB64[ 	]+.L2
++[ 	]+14:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+18:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
++[ 	]+...
++[ 	]+1c:[ 	]+R_LARCH_ADD64[ 	]+.L3
++[ 	]+1c:[ 	]+R_LARCH_SUB64[ 	]+.L5
+diff --git a/gas/testsuite/gas/loongarch/no_thin_add_sub.s b/gas/testsuite/gas/loongarch/no_thin_add_sub.s
+new file mode 100644
+index 00000000..c6801689
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/no_thin_add_sub.s
+@@ -0,0 +1,44 @@
++  .section .text
++.L1:
++  # add32+sub32
++  .4byte .L3-.L1
++  .4byte .L3-.L1
++.L2:
++  # add64+sub64
++  .8byte .L3-.L2
++  .8byte .L3-.L2
++
++  .section sx
++.L3:
++  # no relocation
++  .4byte .L3-.L4
++  .8byte .L3-.L4
++.L4:
++  # add32+sub32
++  .4byte .L4-.L5
++  # add64+sub64
++  .8byte .L4-.L5
++
++  .section sy
++.L5:
++  # add32+sub32
++  .4byte .L1-.L5
++  .4byte .L3-.L5
++  # add64+sub64
++  .8byte .L1-.L5
++  .8byte .L3-.L5
++
++  .section sz
++  # add32+sub32
++  .4byte .L1-.L2
++  # no relocation
++  .4byte .L3-.L4
++  # add32+sub32
++  .4byte .L3-.L5
++
++  # add64+sub64
++  .8byte .L1-.L2
++  # no relocation
++  .8byte .L3-.L4
++  # add64+sub64
++  .8byte .L3-.L5
+diff --git a/gas/testsuite/gas/loongarch/pcrel_norelax.d b/gas/testsuite/gas/loongarch/thin_add_sub_norelax.d
+similarity index 75%
+rename from gas/testsuite/gas/loongarch/pcrel_norelax.d
+rename to gas/testsuite/gas/loongarch/thin_add_sub_norelax.d
+index 842c8d48..702093b6 100644
+--- a/gas/testsuite/gas/loongarch/pcrel_norelax.d
++++ b/gas/testsuite/gas/loongarch/thin_add_sub_norelax.d
+@@ -1,4 +1,4 @@
+-#as: -mno-relax
++#as: -mthin-add-sub -mno-relax
+ #objdump: -Dr
+ 
+ .*:[    ]+file format .*
+@@ -10,20 +10,17 @@ Disassembly of section .text:
+ [ 	]+...
+ [ 	]+0:[ 	]+R_LARCH_32_PCREL[ 	]+.L3
+ [ 	]+4:[ 	]+R_LARCH_32_PCREL[ 	]+.L3\+0x4
+-
+-0*00000008[ ]+<.L2>:
+-[ 	]+...
+ [ 	]+8:[ 	]+R_LARCH_64_PCREL[ 	]+.L3
+ [ 	]+10:[ 	]+R_LARCH_64_PCREL[ 	]+.L3\+0x8
+ 
+ Disassembly[ 	]+of[ 	]+section[ 	]+sx:
+ 
+-0*00000000[ ]+<.L3>:
++0*00000000[ 	]+<.L3>:
+ [ 	]+0:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
+ [ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
+ [ 	]+8:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
+ 
+-0*0000000c[ ]+<.L4>:
++0*0000000c[ 	]+<.L4>:
+ [ 	]+...
+ [ 	]+c:[ 	]+R_LARCH_ADD32[ 	]+.L4
+ [ 	]+c:[ 	]+R_LARCH_SUB32[ 	]+.L5
+@@ -32,25 +29,25 @@ Disassembly[ 	]+of[ 	]+section[ 	]+sx:
+ 
+ Disassembly[ 	]+of[ 	]+section[ 	]+sy:
+ 
+-0*00000000[ ]+<.L5>:
++0*00000000[ 	]+<.L5>:
+ [ 	]+...
+ [ 	]+0:[ 	]+R_LARCH_32_PCREL[ 	]+.L1
+-[ 	]+4:[ 	]+R_LARCH_32_PCREL[ 	]+.L2\+0x4
++[ 	]+4:[ 	]+R_LARCH_32_PCREL[ 	]+.L3\+0x4
+ [ 	]+8:[ 	]+R_LARCH_64_PCREL[ 	]+.L1\+0x8
+-[ 	]+10:[ 	]+R_LARCH_64_PCREL[ 	]+.L2\+0x10
++[ 	]+10:[ 	]+R_LARCH_64_PCREL[ 	]+.L3\+0x10
+ 
+ Disassembly[ 	]+of[ 	]+section[ 	]+sz:
+ 
+-0*00000000[ ]+<sz>:
++0*00000000[ 	]+<sz>:
+ [ 	]+0:[ 	]+fffffff8[ 	]+.word[ 	]+0xfffffff8
+ [ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
+ [ 	]+8:[ 	]+00000000[ 	]+.word[ 	]+0x00000000
+-[ 	]+8:[ 	]+R_LARCH_ADD32[ 	]+.L2
+-[ 	]+8:[ 	]+R_LARCH_SUB32[ 	]+.L3
++[ 	]+8:[ 	]+R_LARCH_ADD32[ 	]+.L3
++[ 	]+8:[ 	]+R_LARCH_SUB32[ 	]+.L5
+ [ 	]+c:[ 	]+fffffff8[ 	]+.word[ 	]+0xfffffff8
+ [ 	]+10:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
+ [ 	]+14:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
+ [ 	]+18:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
+ [ 	]+...
+-[ 	]+1c:[ 	]+R_LARCH_ADD64[ 	]+.L2
+-[ 	]+1c:[ 	]+R_LARCH_SUB64[ 	]+.L3
++[ 	]+1c:[ 	]+R_LARCH_ADD64[ 	]+.L3
++[ 	]+1c:[ 	]+R_LARCH_SUB64[ 	]+.L5
+diff --git a/gas/testsuite/gas/loongarch/pcrel_norelax.s b/gas/testsuite/gas/loongarch/thin_add_sub_norelax.s
+similarity index 87%
+rename from gas/testsuite/gas/loongarch/pcrel_norelax.s
+rename to gas/testsuite/gas/loongarch/thin_add_sub_norelax.s
+index 09527f14..94cfd908 100644
+--- a/gas/testsuite/gas/loongarch/pcrel_norelax.s
++++ b/gas/testsuite/gas/loongarch/thin_add_sub_norelax.s
+@@ -23,20 +23,20 @@
+ .L5:
+   # 32_pcrel
+   .4byte .L1-.L5
+-  .4byte .L2-.L5
++  .4byte .L3-.L5
+   # 64_pcrel
+   .8byte .L1-.L5
+-  .8byte .L2-.L5
++  .8byte .L3-.L5
+ 
+   .section sz
+   # no relocation
+   .4byte .L1-.L2
+   .4byte .L3-.L4
+   # add32+sub32
+-  .4byte .L2-.L3
++  .4byte .L3-.L5
+ 
+   # no relocation
+   .8byte .L1-.L2
+   .8byte .L3-.L4
+   # add64+sub64
+-  .8byte .L2-.L3
++  .8byte .L3-.L5
+diff --git a/gas/testsuite/gas/loongarch/pcrel_relax.d b/gas/testsuite/gas/loongarch/thin_add_sub_relax.d
+similarity index 91%
+rename from gas/testsuite/gas/loongarch/pcrel_relax.d
+rename to gas/testsuite/gas/loongarch/thin_add_sub_relax.d
+index d6f87525..9455c3e6 100644
+--- a/gas/testsuite/gas/loongarch/pcrel_relax.d
++++ b/gas/testsuite/gas/loongarch/thin_add_sub_relax.d
+@@ -1,4 +1,4 @@
+-#as:
++#as: -mthin-add-sub
+ #objdump: -Dr
+ 
+ .*:[    ]+file format .*
+@@ -12,7 +12,7 @@ Disassembly of section .text:
+ [ 	]+4:[ 	]+R_LARCH_ADD32[ 	]+.L3
+ [ 	]+4:[ 	]+R_LARCH_SUB32[ 	]+.L1
+ 
+-0*00000008[ ]+<.L2>:
++0*00000008[ 	]+<.L2>:
+ [ 	]+...
+ [ 	]+8:[ 	]+R_LARCH_64_PCREL[ 	]+.L3
+ [ 	]+10:[ 	]+R_LARCH_ADD64[ 	]+.L3
+@@ -20,12 +20,12 @@ Disassembly of section .text:
+ 
+ Disassembly[ 	]+of[ 	]+section[ 	]+sx:
+ 
+-0*00000000[ ]+<.L3>:
++0*00000000[ 	]+<.L3>:
+ [ 	]+0:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
+ [ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
+ [ 	]+8:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
+ 
+-0*0000000c[ ]+<.L4>:
++0*0000000c[ 	]+<.L4>:
+ [ 	]+...
+ [ 	]+c:[ 	]+R_LARCH_ADD32[ 	]+.L4
+ [ 	]+c:[ 	]+R_LARCH_SUB32[ 	]+.L5
+@@ -34,7 +34,7 @@ Disassembly[ 	]+of[ 	]+section[ 	]+sx:
+ 
+ Disassembly[ 	]+of[ 	]+section[ 	]+sy:
+ 
+-0*00000000[ ]+<.L5>:
++0*00000000[ 	]+<.L5>:
+ [ 	]+...
+ [ 	]+0:[ 	]+R_LARCH_32_PCREL[ 	]+.L1
+ [ 	]+4:[ 	]+R_LARCH_32_PCREL[ 	]+.L3\+0x4
+@@ -43,7 +43,7 @@ Disassembly[ 	]+of[ 	]+section[ 	]+sy:
+ 
+ Disassembly[ 	]+of[ 	]+section[ 	]+sz:
+ 
+-0*00000000[ ]+<sz>:
++0*00000000[ 	]+<sz>:
+ [ 	]+0:[ 	]+00000000[ 	]+.word[ 	]+0x00000000
+ [ 	]+0:[ 	]+R_LARCH_ADD32[ 	]+.L1
+ [ 	]+0:[ 	]+R_LARCH_SUB32[ 	]+.L2
+diff --git a/gas/testsuite/gas/loongarch/pcrel_relax.s b/gas/testsuite/gas/loongarch/thin_add_sub_relax.s
+similarity index 100%
+rename from gas/testsuite/gas/loongarch/pcrel_relax.s
+rename to gas/testsuite/gas/loongarch/thin_add_sub_relax.s
+-- 
+2.33.0
+

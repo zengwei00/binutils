@@ -1,0 +1,52 @@
+From 4945a32e162be2a7001ed8e8066e983d0ae41bf4 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 22 Feb 2024 20:18:25 +0800
+Subject: [PATCH 058/123] LoongArch: bfd: Fix some bugs of howto table
+
+R_LARCH_IRELATIVE: For dynamic relocation that does not distinguish between
+32/64 bits, size and bitsize set to 8 and 64.
+R_LARCH_TLS_DESC64: Change size to 8.
+R_LARCH_SOP_POP_32_S_0_5_10_16_S2: Change src_mask to 0, dst_mask to
+0x03fffc1f.
+---
+ bfd/elfxx-loongarch.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index fe38f369..127f3548 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -278,8 +278,8 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 
+   LOONGARCH_HOWTO (R_LARCH_IRELATIVE,	  /* type (12).  */
+ 	 0,				  /* rightshift */
+-	 4,				  /* size */
+-	 32,				  /* bitsize */
++	 8,				  /* size */
++	 64,				  /* bitsize */
+ 	 false,				  /* pc_relative */
+ 	 0,				  /* bitpos */
+ 	 complain_overflow_dont,	  /* complain_on_overflow */
+@@ -312,7 +312,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 
+   LOONGARCH_HOWTO (R_LARCH_TLS_DESC64,	  /* type (14).  */
+ 	 0,				  /* rightshift.  */
+-	 4,				  /* size.  */
++	 8,				  /* size.  */
+ 	 64,				  /* bitsize.  */
+ 	 false,				  /* pc_relative.  */
+ 	 0,				  /* bitpos.  */
+@@ -514,8 +514,8 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 bfd_elf_generic_reloc,			  /* special_function.  */
+ 	 "R_LARCH_SOP_POP_32_S_0_5_10_16_S2",	  /* name.  */
+ 	 false,					  /* partial_inplace.  */
+-	 0xfc0003e0,				  /* src_mask */
+-	 0xfc0003e0,				  /* dst_mask */
++	 0x0,					  /* src_mask */
++	 0x03fffc1f,				  /* dst_mask */
+ 	 false,					  /* pcrel_offset */
+ 	 BFD_RELOC_LARCH_SOP_POP_32_S_0_5_10_16_S2,
+ 						  /* bfd_reloc_code_real_type */
+-- 
+2.33.0
+

@@ -1,0 +1,1611 @@
+From b71b59b2ff4e169cbed791a1738ba7ac40e1ed49 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Mon, 11 Dec 2023 16:08:20 +0800
+Subject: [PATCH 028/123] LoongArch: Add support for TLS LD/GD/DESC relaxation
+
+The pcalau12i + addi.d of TLS LD/GD/DESC relax to pcaddi.
+Relaxation is only performed when the TLS model transition is not possible.
+---
+ bfd/bfd-in2.h                                 |   3 +
+ bfd/elfnn-loongarch.c                         | 174 +++++++-
+ bfd/elfxx-loongarch.c                         |  60 +++
+ bfd/libbfd.h                                  |   3 +
+ bfd/reloc.c                                   |   7 +
+ gas/config/tc-loongarch.c                     |   8 +-
+ gas/testsuite/gas/loongarch/macro_op.d        | 128 +++---
+ gas/testsuite/gas/loongarch/macro_op_32.d     | 120 +++---
+ .../gas/loongarch/macro_op_large_abs.d        | 160 +++----
+ .../gas/loongarch/macro_op_large_pc.d         | 160 +++----
+ include/elf/loongarch.h                       |   4 +
+ ld/testsuite/ld-loongarch-elf/macro_op.d      | 391 +++++++++---------
+ ld/testsuite/ld-loongarch-elf/macro_op_32.d   | 120 +++---
+ 13 files changed, 795 insertions(+), 543 deletions(-)
+
+diff --git a/bfd/bfd-in2.h b/bfd/bfd-in2.h
+index d210e71b..d7b762d4 100644
+--- a/bfd/bfd-in2.h
++++ b/bfd/bfd-in2.h
+@@ -7356,6 +7356,9 @@ assembler and not (currently) written to any object files.  */
+   BFD_RELOC_LARCH_TLS_DESC64_HI12,
+   BFD_RELOC_LARCH_TLS_DESC_LD,
+   BFD_RELOC_LARCH_TLS_DESC_CALL,
++  BFD_RELOC_LARCH_TLS_LD_PCREL20_S2,
++  BFD_RELOC_LARCH_TLS_GD_PCREL20_S2,
++  BFD_RELOC_LARCH_TLS_DESC_PCREL20_S2,
+   BFD_RELOC_UNUSED
+ };
+ typedef enum bfd_reloc_code_real bfd_reloc_code_real_type;
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 13fddd63..d46bcd77 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -2285,7 +2285,9 @@ perform_relocation (const Elf_Internal_Rela *rel, asection *input_section,
+     case R_LARCH_TLS_DESC_LO12:
+     case R_LARCH_TLS_DESC64_LO20:
+     case R_LARCH_TLS_DESC64_HI12:
+-
++    case R_LARCH_TLS_LD_PCREL20_S2:
++    case R_LARCH_TLS_GD_PCREL20_S2:
++    case R_LARCH_TLS_DESC_PCREL20_S2:
+       r = loongarch_check_offset (rel, input_section);
+       if (r != bfd_reloc_ok)
+ 	break;
+@@ -3667,6 +3669,9 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	case R_LARCH_TLS_GD_HI20:
+ 	case R_LARCH_TLS_DESC_PC_HI20:
+ 	case R_LARCH_TLS_DESC_HI20:
++	case R_LARCH_TLS_LD_PCREL20_S2:
++	case R_LARCH_TLS_GD_PCREL20_S2:
++	case R_LARCH_TLS_DESC_PCREL20_S2:
+ 	  BFD_ASSERT (rel->r_addend == 0);
+ 	  unresolved_reloc = false;
+ 
+@@ -3675,7 +3680,8 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	    is_ie = true;
+ 
+ 	  if (r_type == R_LARCH_TLS_DESC_PC_HI20
+-	      || r_type == R_LARCH_TLS_DESC_HI20)
++	      || r_type == R_LARCH_TLS_DESC_HI20
++	      || r_type == R_LARCH_TLS_DESC_PCREL20_S2)
+ 	    is_desc = true;
+ 
+ 	  bfd_vma got_off = 0;
+@@ -3806,7 +3812,11 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	      || r_type == R_LARCH_TLS_IE_PC_HI20
+ 	      || r_type == R_LARCH_TLS_DESC_PC_HI20)
+ 	    RELOCATE_CALC_PC32_HI20 (relocation, pc);
+-
++	  else if (r_type == R_LARCH_TLS_LD_PCREL20_S2
++	      || r_type == R_LARCH_TLS_GD_PCREL20_S2
++	      || r_type == R_LARCH_TLS_DESC_PCREL20_S2)
++	    relocation -= pc;
++	  /* else {} ABS relocations.  */
+ 	  break;
+ 
+ 	case R_LARCH_TLS_DESC_PC_LO12:
+@@ -4237,6 +4247,85 @@ loongarch_relax_align (bfd *abfd, asection *sec,
+ 					addend - need_nop_bytes, link_info);
+ }
+ 
++/* Relax pcalau12i + addi.d of TLS LD/GD/DESC to pcaddi.  */
++static bool
++loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
++		       Elf_Internal_Rela *rel_hi, bfd_vma symval,
++		       struct bfd_link_info *info, bool *again)
++{
++  bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
++  Elf_Internal_Rela *rel_lo = rel_hi + 2;
++  uint32_t pca = bfd_get (32, abfd, contents + rel_hi->r_offset);
++  uint32_t add = bfd_get (32, abfd, contents + rel_lo->r_offset);
++  uint32_t rd = pca & 0x1f;
++
++  /* This section's output_offset need to subtract the bytes of instructions
++     relaxed by the previous sections, so it needs to be updated beforehand.
++     size_input_section already took care of updating it after relaxation,
++     so we additionally update once here.  */
++  sec->output_offset = sec->output_section->size;
++  bfd_vma pc = sec_addr (sec) + rel_hi->r_offset;
++
++  /* If pc and symbol not in the same segment, add/sub segment alignment.
++     FIXME: if there are multiple readonly segments?  */
++  if (!(sym_sec->flags & SEC_READONLY))
++    {
++      if (symval > pc)
++	pc -= info->maxpagesize;
++      else if (symval < pc)
++	pc += info->maxpagesize;
++    }
++
++  const uint32_t addi_d = 0x02c00000;
++  const uint32_t pcaddi = 0x18000000;
++
++  /* Is pcalau12i + addi.d insns?  */
++  if ((ELFNN_R_TYPE (rel_lo->r_info) != R_LARCH_GOT_PC_LO12
++	&& ELFNN_R_TYPE (rel_lo->r_info) != R_LARCH_TLS_DESC_PC_LO12)
++      || (ELFNN_R_TYPE ((rel_lo + 1)->r_info) != R_LARCH_RELAX)
++      || (ELFNN_R_TYPE ((rel_hi + 1)->r_info) != R_LARCH_RELAX)
++      || (rel_hi->r_offset + 4 != rel_lo->r_offset)
++      || ((add & addi_d) != addi_d)
++      /* Is pcalau12i $rd + addi.d $rd,$rd?  */
++      || ((add & 0x1f) != rd)
++      || (((add >> 5) & 0x1f) != rd)
++      /* Can be relaxed to pcaddi?  */
++      || (symval & 0x3) /* 4 bytes align.  */
++      || ((bfd_signed_vma)(symval - pc) < (bfd_signed_vma)(int32_t)0xffe00000)
++      || ((bfd_signed_vma)(symval - pc) > (bfd_signed_vma)(int32_t)0x1ffffc))
++    return false;
++
++  /* Continue next relax trip.  */
++  *again = true;
++
++  pca = pcaddi | rd;
++  bfd_put (32, abfd, pca, contents + rel_hi->r_offset);
++
++  /* Adjust relocations.  */
++  switch (ELFNN_R_TYPE (rel_hi->r_info))
++    {
++    case R_LARCH_TLS_LD_PC_HI20:
++      rel_hi->r_info = ELFNN_R_INFO (ELFNN_R_SYM (rel_hi->r_info),
++				      R_LARCH_TLS_LD_PCREL20_S2);
++      break;
++    case R_LARCH_TLS_GD_PC_HI20:
++      rel_hi->r_info = ELFNN_R_INFO (ELFNN_R_SYM (rel_hi->r_info),
++				      R_LARCH_TLS_GD_PCREL20_S2);
++      break;
++    case R_LARCH_TLS_DESC_PC_HI20:
++      rel_hi->r_info = ELFNN_R_INFO (ELFNN_R_SYM (rel_hi->r_info),
++				      R_LARCH_TLS_DESC_PCREL20_S2);
++      break;
++    default:
++      break;
++    }
++  rel_lo->r_info = ELFNN_R_INFO (0, R_LARCH_NONE);
++
++  loongarch_relax_delete_bytes (abfd, sec, rel_lo->r_offset, 4, info);
++
++  return true;
++}
++
+ static bool
+ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 			       struct bfd_link_info *info,
+@@ -4281,15 +4370,23 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 
+   for (unsigned int i = 0; i < sec->reloc_count; i++)
+     {
+-      Elf_Internal_Rela *rel = relocs + i;
+-      asection *sym_sec;
++      char symtype;
+       bfd_vma symval;
+-      unsigned long r_symndx = ELFNN_R_SYM (rel->r_info);
+-      unsigned long r_type = ELFNN_R_TYPE (rel->r_info);
++      asection *sym_sec;
+       bool local_got = false;
+-      char symtype;
++      Elf_Internal_Rela *rel = relocs + i;
+       struct elf_link_hash_entry *h = NULL;
++      unsigned long r_type = ELFNN_R_TYPE (rel->r_info);
++      unsigned long r_symndx = ELFNN_R_SYM (rel->r_info);
+ 
++      /* Four kind of relocations:
++	 Normal: symval is the symbol address.
++	 R_LARCH_ALIGN: symval is the address of the last NOP instruction
++	 added by this relocation, and then adds 4 more.
++	 R_LARCH_CALL36: symval is the symbol address for local symbols,
++	 or the PLT entry address of the symbol. (Todo)
++	 R_LARCHL_TLS_LD/GD/DESC_PC_HI20: symval is the GOT entry address
++	 of the symbol.  */
+       if (r_symndx < symtab_hdr->sh_info)
+ 	{
+ 	  Elf_Internal_Sym *sym = (Elf_Internal_Sym *)symtab_hdr->contents
+@@ -4297,7 +4394,24 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  if (ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC)
+ 	    continue;
+ 
+-	  if (sym->st_shndx == SHN_UNDEF || R_LARCH_ALIGN == r_type)
++	  if (R_LARCH_TLS_LD_PC_HI20 == r_type
++	      || R_LARCH_TLS_GD_PC_HI20 == r_type
++	      || R_LARCH_TLS_DESC_PC_HI20 == r_type)
++	    {
++	      if (loongarch_can_relax_tls (info, r_type, h, abfd, r_symndx))
++		continue;
++	      else
++		{
++		  sym_sec = htab->elf.sgot;
++		  symval = elf_local_got_offsets (abfd)[r_symndx];
++		  char tls_type = _bfd_loongarch_elf_tls_type (abfd, h,
++								r_symndx);
++		  if (R_LARCH_TLS_DESC_PC_HI20 == r_type
++			&& GOT_TLS_GD_BOTH_P (tls_type))
++		    symval += 2 * GOT_ENTRY_SIZE;
++		}
++	    }
++	  else if (sym->st_shndx == SHN_UNDEF || R_LARCH_ALIGN == r_type)
+ 	    {
+ 	      sym_sec = sec;
+ 	      symval = rel->r_offset;
+@@ -4322,7 +4436,26 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  if (h != NULL && h->type == STT_GNU_IFUNC)
+ 	    continue;
+ 
+-	  if ((h->root.type == bfd_link_hash_defined
++	  /* The GOT entry of tls symbols must in current execute file or
++	     shared object.  */
++	  if (R_LARCH_TLS_LD_PC_HI20 == r_type
++	      || R_LARCH_TLS_GD_PC_HI20 == r_type
++	      || R_LARCH_TLS_DESC_PC_HI20 == r_type)
++	    {
++	      if (loongarch_can_relax_tls (info, r_type, h, abfd, r_symndx))
++		continue;
++	      else
++		{
++		  sym_sec = htab->elf.sgot;
++		  symval = h->got.offset;
++		  char tls_type = _bfd_loongarch_elf_tls_type (abfd, h,
++								r_symndx);
++		  if (R_LARCH_TLS_DESC_PC_HI20 == r_type
++			&& GOT_TLS_GD_BOTH_P (tls_type))
++		    symval += 2 * GOT_ENTRY_SIZE;
++		}
++	    }
++	  else if ((h->root.type == bfd_link_hash_defined
+ 		  || h->root.type == bfd_link_hash_defweak)
+ 		&& h->root.u.def.section != NULL
+ 		&& h->root.u.def.section->output_section != NULL)
+@@ -4351,7 +4484,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	   if (symtype != STT_SECTION)
+ 	     symval += rel->r_addend;
+ 	}
+-      /* For R_LARCH_ALIGN, symval is sec_addr (sym_sec) + rel->r_offset
++      /* For R_LARCH_ALIGN, symval is sec_addr (sec) + rel->r_offset
+ 	 + (alingmeng - 4).
+ 	 If r_symndx is 0, alignmeng-4 is r_addend.
+ 	 If r_symndx > 0, alignment-4 is 2^(r_addend & 0xff)-4.  */
+@@ -4392,6 +4525,25 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 					    info, again);
+ 	    }
+ 	  break;
++
++	case R_LARCH_TLS_LD_PC_HI20:
++	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
++	    loongarch_relax_tls_ld_gd_desc (abfd, sec, sym_sec, rel, symval,
++					    info, again);
++	  break;
++
++	case R_LARCH_TLS_GD_PC_HI20:
++	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
++	    loongarch_relax_tls_ld_gd_desc (abfd, sec, sym_sec, rel, symval,
++					    info, again);
++	  break;
++
++	case R_LARCH_TLS_DESC_PC_HI20:
++	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
++	    loongarch_relax_tls_ld_gd_desc (abfd, sec, sym_sec, rel, symval,
++					    info, again);
++	  break;
++
+ 	default:
+ 	  break;
+ 	}
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index 30a941a8..310e6d62 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -1775,6 +1775,60 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 BFD_RELOC_LARCH_TLS_DESC_CALL,		/* bfd_reloc_code_real_type.  */
+ 	 NULL,					/* adjust_reloc_bits.  */
+ 	 "desc_call"),				/* larch_reloc_type_name.  */
++
++  /* For pcaddi, ld_pc_hi20 + ld_pc_lo12 can relax to ld_pcrel20_s2.  */
++  LOONGARCH_HOWTO (R_LARCH_TLS_LD_PCREL20_S2,	/* type (124).  */
++	 2,					/* rightshift.  */
++	 4,					/* size.  */
++	 20,					/* bitsize.  */
++	 false,					/* pc_relative.  */
++	 5,					/* bitpos.  */
++	 complain_overflow_signed,		/* complain_on_overflow.  */
++	 bfd_elf_generic_reloc,			/* special_function.  */
++	 "R_LARCH_TLS_LD_PCREL20_S2",		/* name.  */
++	 false,					/* partial_inplace.  */
++	 0,					/* src_mask.  */
++	 0x1ffffe0,				/* dst_mask.  */
++	 true,					/* pcrel_offset.  */
++	 BFD_RELOC_LARCH_TLS_LD_PCREL20_S2,	/* bfd_reloc_code_real_type.  */
++	 reloc_sign_bits,			/* adjust_reloc_bits.  */
++	 "ld_pcrel_20"),			/* larch_reloc_type_name.  */
++
++  /* For pcaddi, gd_pc_hi20 + gd_pc_lo12 can relax to gd_pcrel20_s2.  */
++  LOONGARCH_HOWTO (R_LARCH_TLS_GD_PCREL20_S2,	/* type (125).  */
++	 2,					/* rightshift.  */
++	 4,					/* size.  */
++	 20,					/* bitsize.  */
++	 false,					/* pc_relative.  */
++	 5,					/* bitpos.  */
++	 complain_overflow_signed,		/* complain_on_overflow.  */
++	 bfd_elf_generic_reloc,			/* special_function.  */
++	 "R_LARCH_TLS_GD_PCREL20_S2",		/* name.  */
++	 false,					/* partial_inplace.  */
++	 0,					/* src_mask.  */
++	 0x1ffffe0,				/* dst_mask.  */
++	 true,					/* pcrel_offset.  */
++	 BFD_RELOC_LARCH_TLS_GD_PCREL20_S2,	/* bfd_reloc_code_real_type.  */
++	 reloc_sign_bits,			/* adjust_reloc_bits.  */
++	 "gd_pcrel_20"),			/* larch_reloc_type_name.  */
++
++  /* For pcaddi, desc_pc_hi20 + desc_pc_lo12 can relax to desc_pcrel20_s2.  */
++  LOONGARCH_HOWTO (R_LARCH_TLS_DESC_PCREL20_S2,	/* type (126).  */
++	 2,					/* rightshift.  */
++	 4,					/* size.  */
++	 20,					/* bitsize.  */
++	 false,					/* pc_relative.  */
++	 5,					/* bitpos.  */
++	 complain_overflow_signed,		/* complain_on_overflow.  */
++	 bfd_elf_generic_reloc,			/* special_function.  */
++	 "R_LARCH_TLS_DESC_PCREL20_S2",		/* name.  */
++	 false,					/* partial_inplace.  */
++	 0,					/* src_mask.  */
++	 0x1ffffe0,				/* dst_mask.  */
++	 true,					/* pcrel_offset.  */
++	 BFD_RELOC_LARCH_TLS_DESC_PCREL20_S2,	/* bfd_reloc_code_real_type.  */
++	 reloc_sign_bits,			/* adjust_reloc_bits.  */
++	 "desc_pcrel_20"),			/* larch_reloc_type_name.  */
+ };
+ 
+ reloc_howto_type *
+@@ -1783,7 +1837,9 @@ loongarch_elf_rtype_to_howto (bfd *abfd, unsigned int r_type)
+   if(r_type < R_LARCH_count)
+     {
+       /* For search table fast.  */
++      /*
+       BFD_ASSERT (ARRAY_SIZE (loongarch_howto_table) == R_LARCH_count);
++      */
+ 
+       if (loongarch_howto_table[r_type].howto.type == r_type)
+ 	return (reloc_howto_type *)&loongarch_howto_table[r_type];
+@@ -1802,7 +1858,9 @@ loongarch_elf_rtype_to_howto (bfd *abfd, unsigned int r_type)
+ reloc_howto_type *
+ loongarch_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED, const char *r_name)
+ {
++  /*
+   BFD_ASSERT (ARRAY_SIZE (loongarch_howto_table) == R_LARCH_count);
++  */
+ 
+   for (size_t i = 0; i < ARRAY_SIZE (loongarch_howto_table); i++)
+     if (loongarch_howto_table[i].howto.name
+@@ -1821,7 +1879,9 @@ reloc_howto_type *
+ loongarch_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
+ 			     bfd_reloc_code_real_type code)
+ {
++  /*
+   BFD_ASSERT (ARRAY_SIZE (loongarch_howto_table) == R_LARCH_count);
++  */
+ 
+   /* Fast search for new reloc types.  */
+   if (BFD_RELOC_LARCH_B16 <= code && code < BFD_RELOC_LARCH_RELAX)
+diff --git a/bfd/libbfd.h b/bfd/libbfd.h
+index a474b971..b5af327f 100644
+--- a/bfd/libbfd.h
++++ b/bfd/libbfd.h
+@@ -3538,6 +3538,9 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
+   "BFD_RELOC_LARCH_TLS_DESC64_HI12",
+   "BFD_RELOC_LARCH_TLS_DESC_LD",
+   "BFD_RELOC_LARCH_TLS_DESC_CALL",
++  "BFD_RELOC_LARCH_TLS_LD_PCREL20_S2",
++  "BFD_RELOC_LARCH_TLS_GD_PCREL20_S2",
++  "BFD_RELOC_LARCH_TLS_DESC_PCREL20_S2",
+  "@@overflow: BFD_RELOC_UNUSED@@",
+ };
+ #endif
+diff --git a/bfd/reloc.c b/bfd/reloc.c
+index 5af98afb..4782f0f6 100644
+--- a/bfd/reloc.c
++++ b/bfd/reloc.c
+@@ -8188,6 +8188,13 @@ ENUMX
+ ENUMX
+   BFD_RELOC_LARCH_TLS_DESC_CALL
+ 
++ENUMX
++  BFD_RELOC_LARCH_TLS_LD_PCREL20_S2
++ENUMX
++  BFD_RELOC_LARCH_TLS_GD_PCREL20_S2
++ENUMX
++  BFD_RELOC_LARCH_TLS_DESC_PCREL20_S2
++
+ ENUMDOC
+   LARCH relocations.
+ 
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 1658025f..def26daf 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -682,7 +682,7 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 		      esc_ch1, esc_ch2, bit_field, arg);
+ 
+ 	  if (ip->reloc_info[0].type >= BFD_RELOC_LARCH_B16
+-	      && ip->reloc_info[0].type <= BFD_RELOC_LARCH_TLS_DESC_CALL)
++	      && ip->reloc_info[0].type <= BFD_RELOC_LARCH_TLS_DESC_PCREL20_S2)
+ 	    {
+ 	      /* As we compact stack-relocs, it is no need for pop operation.
+ 		 But break out until here in order to check the imm field.
+@@ -694,7 +694,11 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 		    && (BFD_RELOC_LARCH_PCALA_HI20 == reloc_type
+ 			|| BFD_RELOC_LARCH_PCALA_LO12 == reloc_type
+ 			|| BFD_RELOC_LARCH_GOT_PC_HI20 == reloc_type
+-			|| BFD_RELOC_LARCH_GOT_PC_LO12 == reloc_type))
++			|| BFD_RELOC_LARCH_GOT_PC_LO12 == reloc_type
++			|| BFD_RELOC_LARCH_TLS_LD_PC_HI20 == reloc_type
++			|| BFD_RELOC_LARCH_TLS_GD_PC_HI20 == reloc_type
++			|| BFD_RELOC_LARCH_TLS_DESC_PC_HI20 == reloc_type
++			|| BFD_RELOC_LARCH_TLS_DESC_PC_LO12 == reloc_type))
+ 		{
+ 		  ip->reloc_info[ip->reloc_num].type = BFD_RELOC_LARCH_RELAX;
+ 		  ip->reloc_info[ip->reloc_num].value = const_0;
+diff --git a/gas/testsuite/gas/loongarch/macro_op.d b/gas/testsuite/gas/loongarch/macro_op.d
+index 32860864..47f8f45c 100644
+--- a/gas/testsuite/gas/loongarch/macro_op.d
++++ b/gas/testsuite/gas/loongarch/macro_op.d
+@@ -2,70 +2,72 @@
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-.*:[    ]+file format .*
++.*:     file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-00000000.* <.text>:
+-[ 	]+0:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+4:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+8:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+c:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+10:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+10:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+\.L1
+-[ 	]+10:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+14:[ 	]+28c00084[ 	]+ld\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+14:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+\.L1
+-[ 	]+14:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+18:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+18:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+\.L1
+-[ 	]+18:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+1c:[ 	]+28c00084[ 	]+ld\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+1c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+\.L1
+-[ 	]+1c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+20:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+20:[ 	]+R_LARCH_PCALA_HI20[ 	]+\.L1
+-[ 	]+20:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+24:[ 	]+02c00084[ 	]+addi\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+24:[ 	]+R_LARCH_PCALA_LO12[ 	]+\.L1
+-[ 	]+24:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+14000004[ 	]+lu12i\.w[ 	]+\$a0,[ 	]+0
+-[ 	]+28:[ 	]+R_LARCH_MARK_LA[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+R_LARCH_ABS_HI20[ 	]+\.L1
+-[ 	]+2c:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+2c:[ 	]+R_LARCH_ABS_LO12[ 	]+\.L1
+-[ 	]+30:[ 	]+16000004[ 	]+lu32i\.d[ 	]+\$a0,[ 	]+0
+-[ 	]+30:[ 	]+R_LARCH_ABS64_LO20[ 	]+\.L1
+-[ 	]+34:[ 	]+03000084[ 	]+lu52i\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+34:[ 	]+R_LARCH_ABS64_HI12[ 	]+\.L1
+-[ 	]+38:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+38:[ 	]+R_LARCH_PCALA_HI20[ 	]+\.L1
+-[ 	]+38:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+3c:[ 	]+02c00084[ 	]+addi\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+3c:[ 	]+R_LARCH_PCALA_LO12[ 	]+\.L1
+-[ 	]+3c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+40:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+40:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+\.L1
+-[ 	]+40:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+44:[ 	]+28c00084[ 	]+ld\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+44:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+\.L1
+-[ 	]+44:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+48:[ 	]+14000004[ 	]+lu12i\.w[ 	]+\$a0,[ 	]+0
+-[ 	]+48:[ 	]+R_LARCH_TLS_LE_HI20[ 	]+TLS1
+-[ 	]+4c:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+4c:[ 	]+R_LARCH_TLS_LE_LO12[ 	]+TLS1
+-[ 	]+50:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+50:[ 	]+R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
+-[ 	]+54:[ 	]+28c00084[ 	]+ld\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+54:[ 	]+R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
+-[ 	]+58:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+58:[ 	]+R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
+-[ 	]+5c:[ 	]+02c00084[ 	]+addi\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+5c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+5c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+60:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+60:[ 	]+R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
+-[ 	]+64:[ 	]+02c00084[ 	]+addi\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+64:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+64:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++0+ <.*>:
++   0:	00150004 	move        	\$a0, \$zero
++   4:	02bffc04 	li.w        	\$a0, -1
++   8:	00150004 	move        	\$a0, \$zero
++   c:	02bffc04 	li.w        	\$a0, -1
++  10:	1a000004 	pcalau12i   	\$a0, 0
++			10: R_LARCH_GOT_PC_HI20	.L1
++			10: R_LARCH_RELAX	\*ABS\*
++  14:	28c00084 	ld.d        	\$a0, \$a0, 0
++			14: R_LARCH_GOT_PC_LO12	.L1
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	1a000004 	pcalau12i   	\$a0, 0
++			18: R_LARCH_GOT_PC_HI20	.L1
++			18: R_LARCH_RELAX	\*ABS\*
++  1c:	28c00084 	ld.d        	\$a0, \$a0, 0
++			1c: R_LARCH_GOT_PC_LO12	.L1
++			1c: R_LARCH_RELAX	\*ABS\*
++  20:	1a000004 	pcalau12i   	\$a0, 0
++			20: R_LARCH_PCALA_HI20	.L1
++			20: R_LARCH_RELAX	\*ABS\*
++  24:	02c00084 	addi.d      	\$a0, \$a0, 0
++			24: R_LARCH_PCALA_LO12	.L1
++			24: R_LARCH_RELAX	\*ABS\*
++  28:	14000004 	lu12i.w     	\$a0, 0
++			28: R_LARCH_MARK_LA	\*ABS\*
++			28: R_LARCH_ABS_HI20	.L1
++  2c:	03800084 	ori         	\$a0, \$a0, 0x0
++			2c: R_LARCH_ABS_LO12	.L1
++  30:	16000004 	lu32i.d     	\$a0, 0
++			30: R_LARCH_ABS64_LO20	.L1
++  34:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			34: R_LARCH_ABS64_HI12	.L1
++  38:	1a000004 	pcalau12i   	\$a0, 0
++			38: R_LARCH_PCALA_HI20	.L1
++			38: R_LARCH_RELAX	\*ABS\*
++  3c:	02c00084 	addi.d      	\$a0, \$a0, 0
++			3c: R_LARCH_PCALA_LO12	.L1
++			3c: R_LARCH_RELAX	\*ABS\*
++  40:	1a000004 	pcalau12i   	\$a0, 0
++			40: R_LARCH_GOT_PC_HI20	.L1
++			40: R_LARCH_RELAX	\*ABS\*
++  44:	28c00084 	ld.d        	\$a0, \$a0, 0
++			44: R_LARCH_GOT_PC_LO12	.L1
++			44: R_LARCH_RELAX	\*ABS\*
++  48:	14000004 	lu12i.w     	\$a0, 0
++			48: R_LARCH_TLS_LE_HI20	TLS1
++  4c:	03800084 	ori         	\$a0, \$a0, 0x0
++			4c: R_LARCH_TLS_LE_LO12	TLS1
++  50:	1a000004 	pcalau12i   	\$a0, 0
++			50: R_LARCH_TLS_IE_PC_HI20	TLS1
++  54:	28c00084 	ld.d        	\$a0, \$a0, 0
++			54: R_LARCH_TLS_IE_PC_LO12	TLS1
++  58:	1a000004 	pcalau12i   	\$a0, 0
++			58: R_LARCH_TLS_LD_PC_HI20	TLS1
++			58: R_LARCH_RELAX	\*ABS\*
++  5c:	02c00084 	addi.d      	\$a0, \$a0, 0
++			5c: R_LARCH_GOT_PC_LO12	TLS1
++			5c: R_LARCH_RELAX	\*ABS\*
++  60:	1a000004 	pcalau12i   	\$a0, 0
++			60: R_LARCH_TLS_GD_PC_HI20	TLS1
++			60: R_LARCH_RELAX	\*ABS\*
++  64:	02c00084 	addi.d      	\$a0, \$a0, 0
++			64: R_LARCH_GOT_PC_LO12	TLS1
++			64: R_LARCH_RELAX	\*ABS\*
+diff --git a/gas/testsuite/gas/loongarch/macro_op_32.d b/gas/testsuite/gas/loongarch/macro_op_32.d
+index 188026a5..a7349aa8 100644
+--- a/gas/testsuite/gas/loongarch/macro_op_32.d
++++ b/gas/testsuite/gas/loongarch/macro_op_32.d
+@@ -2,66 +2,68 @@
+ #objdump: -dr
+ #skip: loongarch64-*-*
+ 
+-.*:[    ]+file format .*
++.*:     file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-00000000.* <.L1>:
+-[ 	]+0:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+4:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+8:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+c:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+10:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+10:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+10:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+14:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+14:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+14:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+18:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+18:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+18:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+1c:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+1c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+1c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+20:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+20:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+20:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+24:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+24:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+24:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+28:[ 	]+R_LARCH_MARK_LA[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+R_LARCH_ABS_HI20[ 	]+.L1
+-[ 	]+2c:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+2c:[ 	]+R_LARCH_ABS_LO12[ 	]+.L1
+-[ 	]+30:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+30:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+30:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+34:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+34:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+34:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+38:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+38:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+38:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+3c:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+3c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+3c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+40:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+40:[ 	]+R_LARCH_TLS_LE_HI20[ 	]+TLS1
+-[ 	]+44:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+44:[ 	]+R_LARCH_TLS_LE_LO12[ 	]+TLS1
+-[ 	]+48:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+48:[ 	]+R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
+-[ 	]+4c:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+4c:[ 	]+R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
+-[ 	]+50:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+50:[ 	]+R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
+-[ 	]+54:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+54:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+54:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+58:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+58:[ 	]+R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
+-[ 	]+5c:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+5c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+5c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++0+ <.L1>:
++   0:	00150004 	move        	\$a0, \$zero
++   4:	02bffc04 	li.w        	\$a0, -1
++   8:	00150004 	move        	\$a0, \$zero
++   c:	02bffc04 	li.w        	\$a0, -1
++  10:	1a000004 	pcalau12i   	\$a0, 0
++			10: R_LARCH_GOT_PC_HI20	.L1
++			10: R_LARCH_RELAX	\*ABS\*
++  14:	28800084 	ld.w        	\$a0, \$a0, 0
++			14: R_LARCH_GOT_PC_LO12	.L1
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	1a000004 	pcalau12i   	\$a0, 0
++			18: R_LARCH_GOT_PC_HI20	.L1
++			18: R_LARCH_RELAX	\*ABS\*
++  1c:	28800084 	ld.w        	\$a0, \$a0, 0
++			1c: R_LARCH_GOT_PC_LO12	.L1
++			1c: R_LARCH_RELAX	\*ABS\*
++  20:	1a000004 	pcalau12i   	\$a0, 0
++			20: R_LARCH_PCALA_HI20	.L1
++			20: R_LARCH_RELAX	\*ABS\*
++  24:	02800084 	addi.w      	\$a0, \$a0, 0
++			24: R_LARCH_PCALA_LO12	.L1
++			24: R_LARCH_RELAX	\*ABS\*
++  28:	14000004 	lu12i.w     	\$a0, 0
++			28: R_LARCH_MARK_LA	\*ABS\*
++			28: R_LARCH_ABS_HI20	.L1
++  2c:	03800084 	ori         	\$a0, \$a0, 0x0
++			2c: R_LARCH_ABS_LO12	.L1
++  30:	1a000004 	pcalau12i   	\$a0, 0
++			30: R_LARCH_PCALA_HI20	.L1
++			30: R_LARCH_RELAX	\*ABS\*
++  34:	02800084 	addi.w      	\$a0, \$a0, 0
++			34: R_LARCH_PCALA_LO12	.L1
++			34: R_LARCH_RELAX	\*ABS\*
++  38:	1a000004 	pcalau12i   	\$a0, 0
++			38: R_LARCH_GOT_PC_HI20	.L1
++			38: R_LARCH_RELAX	\*ABS\*
++  3c:	28800084 	ld.w        	\$a0, \$a0, 0
++			3c: R_LARCH_GOT_PC_LO12	.L1
++			3c: R_LARCH_RELAX	\*ABS\*
++  40:	14000004 	lu12i.w     	\$a0, 0
++			40: R_LARCH_TLS_LE_HI20	TLS1
++  44:	03800084 	ori         	\$a0, \$a0, 0x0
++			44: R_LARCH_TLS_LE_LO12	TLS1
++  48:	1a000004 	pcalau12i   	\$a0, 0
++			48: R_LARCH_TLS_IE_PC_HI20	TLS1
++  4c:	28800084 	ld.w        	\$a0, \$a0, 0
++			4c: R_LARCH_TLS_IE_PC_LO12	TLS1
++  50:	1a000004 	pcalau12i   	\$a0, 0
++			50: R_LARCH_TLS_LD_PC_HI20	TLS1
++			50: R_LARCH_RELAX	\*ABS\*
++  54:	02800084 	addi.w      	\$a0, \$a0, 0
++			54: R_LARCH_GOT_PC_LO12	TLS1
++			54: R_LARCH_RELAX	\*ABS\*
++  58:	1a000004 	pcalau12i   	\$a0, 0
++			58: R_LARCH_TLS_GD_PC_HI20	TLS1
++			58: R_LARCH_RELAX	\*ABS\*
++  5c:	02800084 	addi.w      	\$a0, \$a0, 0
++			5c: R_LARCH_GOT_PC_LO12	TLS1
++			5c: R_LARCH_RELAX	\*ABS\*
+diff --git a/gas/testsuite/gas/loongarch/macro_op_large_abs.d b/gas/testsuite/gas/loongarch/macro_op_large_abs.d
+index 0c49f68e..729e878f 100644
+--- a/gas/testsuite/gas/loongarch/macro_op_large_abs.d
++++ b/gas/testsuite/gas/loongarch/macro_op_large_abs.d
+@@ -1,85 +1,89 @@
+-#as: -mla-global-with-abs
++#as:
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-.*:[    ]+file format .*
++.*:     file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-00000000.* <.L1>:
+-[ 	]+0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+0:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+0:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+4:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+4:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+4:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+8:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+8:[ 	]+R_LARCH_PCALA64_LO20[ 	]+.L1
+-[ 	]+c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+c:[ 	]+R_LARCH_PCALA64_HI12[ 	]+.L1
+-[ 	]+10:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+14:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+14:[ 	]+R_LARCH_MARK_LA[ 	]+\*ABS\*
+-[ 	]+14:[ 	]+R_LARCH_ABS_HI20[ 	]+.L1
+-[ 	]+18:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+18:[ 	]+R_LARCH_ABS_LO12[ 	]+.L1
+-[ 	]+1c:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0,[ 	]+0
+-[ 	]+1c:[ 	]+R_LARCH_ABS64_LO20[ 	]+.L1
+-[ 	]+20:[ 	]+03000084[ 	]+lu52i.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+20:[ 	]+R_LARCH_ABS64_HI12[ 	]+.L1
+-[ 	]+24:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+24:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+24:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+28:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+28:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+2c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+2c:[ 	]+R_LARCH_PCALA64_LO20[ 	]+.L1
+-[ 	]+30:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+30:[ 	]+R_LARCH_PCALA64_HI12[ 	]+.L1
+-[ 	]+34:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+38:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+38:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+38:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+3c:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+3c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+3c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+40:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+40:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+.L1
+-[ 	]+44:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+44:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+.L1
+-[ 	]+48:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+4c:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+4c:[ 	]+R_LARCH_TLS_LE_HI20[ 	]+TLS1
+-[ 	]+50:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+50:[ 	]+R_LARCH_TLS_LE_LO12[ 	]+TLS1
+-[ 	]+54:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+54:[ 	]+R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
+-[ 	]+58:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+58:[ 	]+R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
+-[ 	]+5c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+5c:[ 	]+R_LARCH_TLS_IE64_PC_LO20[ 	]+TLS1
+-[ 	]+60:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+60:[ 	]+R_LARCH_TLS_IE64_PC_HI12[ 	]+TLS1
+-[ 	]+64:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+68:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+68:[ 	]+R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
+-[ 	]+6c:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+6c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+6c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+70:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+70:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+TLS1
+-[ 	]+74:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+74:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+TLS1
+-[ 	]+78:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+7c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+7c:[ 	]+R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
+-[ 	]+80:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+80:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+80:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+84:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+84:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+TLS1
+-[ 	]+88:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+88:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+TLS1
+-[ 	]+8c:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
++0+ <.L1>:
++   0:	1a000004 	pcalau12i   	\$a0, 0
++			0: R_LARCH_PCALA_HI20	.L1
++			0: R_LARCH_RELAX	\*ABS\*
++   4:	02c00005 	li.d        	\$a1, 0
++			4: R_LARCH_PCALA_LO12	.L1
++			4: R_LARCH_RELAX	\*ABS\*
++   8:	16000005 	lu32i.d     	\$a1, 0
++			8: R_LARCH_PCALA64_LO20	.L1
++   c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			c: R_LARCH_PCALA64_HI12	.L1
++  10:	00109484 	add.d       	\$a0, \$a0, \$a1
++  14:	1a000004 	pcalau12i   	\$a0, 0
++			14: R_LARCH_GOT_PC_HI20	.L1
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	02c00005 	li.d        	\$a1, 0
++			18: R_LARCH_GOT_PC_LO12	.L1
++			18: R_LARCH_RELAX	\*ABS\*
++  1c:	16000005 	lu32i.d     	\$a1, 0
++			1c: R_LARCH_GOT64_PC_LO20	.L1
++  20:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			20: R_LARCH_GOT64_PC_HI12	.L1
++  24:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  28:	1a000004 	pcalau12i   	\$a0, 0
++			28: R_LARCH_PCALA_HI20	.L1
++			28: R_LARCH_RELAX	\*ABS\*
++  2c:	02c00005 	li.d        	\$a1, 0
++			2c: R_LARCH_PCALA_LO12	.L1
++			2c: R_LARCH_RELAX	\*ABS\*
++  30:	16000005 	lu32i.d     	\$a1, 0
++			30: R_LARCH_PCALA64_LO20	.L1
++  34:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			34: R_LARCH_PCALA64_HI12	.L1
++  38:	00109484 	add.d       	\$a0, \$a0, \$a1
++  3c:	1a000004 	pcalau12i   	\$a0, 0
++			3c: R_LARCH_GOT_PC_HI20	.L1
++			3c: R_LARCH_RELAX	\*ABS\*
++  40:	02c00005 	li.d        	\$a1, 0
++			40: R_LARCH_GOT_PC_LO12	.L1
++			40: R_LARCH_RELAX	\*ABS\*
++  44:	16000005 	lu32i.d     	\$a1, 0
++			44: R_LARCH_GOT64_PC_LO20	.L1
++  48:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			48: R_LARCH_GOT64_PC_HI12	.L1
++  4c:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  50:	14000004 	lu12i.w     	\$a0, 0
++			50: R_LARCH_TLS_LE_HI20	TLS1
++  54:	03800084 	ori         	\$a0, \$a0, 0x0
++			54: R_LARCH_TLS_LE_LO12	TLS1
++  58:	1a000004 	pcalau12i   	\$a0, 0
++			58: R_LARCH_TLS_IE_PC_HI20	TLS1
++  5c:	02c00005 	li.d        	\$a1, 0
++			5c: R_LARCH_TLS_IE_PC_LO12	TLS1
++  60:	16000005 	lu32i.d     	\$a1, 0
++			60: R_LARCH_TLS_IE64_PC_LO20	TLS1
++  64:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			64: R_LARCH_TLS_IE64_PC_HI12	TLS1
++  68:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  6c:	1a000004 	pcalau12i   	\$a0, 0
++			6c: R_LARCH_TLS_LD_PC_HI20	TLS1
++			6c: R_LARCH_RELAX	\*ABS\*
++  70:	02c00005 	li.d        	\$a1, 0
++			70: R_LARCH_GOT_PC_LO12	TLS1
++			70: R_LARCH_RELAX	\*ABS\*
++  74:	16000005 	lu32i.d     	\$a1, 0
++			74: R_LARCH_GOT64_PC_LO20	TLS1
++  78:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			78: R_LARCH_GOT64_PC_HI12	TLS1
++  7c:	00109484 	add.d       	\$a0, \$a0, \$a1
++  80:	1a000004 	pcalau12i   	\$a0, 0
++			80: R_LARCH_TLS_GD_PC_HI20	TLS1
++			80: R_LARCH_RELAX	\*ABS\*
++  84:	02c00005 	li.d        	\$a1, 0
++			84: R_LARCH_GOT_PC_LO12	TLS1
++			84: R_LARCH_RELAX	\*ABS\*
++  88:	16000005 	lu32i.d     	\$a1, 0
++			88: R_LARCH_GOT64_PC_LO20	TLS1
++  8c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			8c: R_LARCH_GOT64_PC_HI12	TLS1
++  90:	00109484 	add.d       	\$a0, \$a0, \$a1
+diff --git a/gas/testsuite/gas/loongarch/macro_op_large_pc.d b/gas/testsuite/gas/loongarch/macro_op_large_pc.d
+index 0c49f68e..729e878f 100644
+--- a/gas/testsuite/gas/loongarch/macro_op_large_pc.d
++++ b/gas/testsuite/gas/loongarch/macro_op_large_pc.d
+@@ -1,85 +1,89 @@
+-#as: -mla-global-with-abs
++#as:
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-.*:[    ]+file format .*
++.*:     file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-00000000.* <.L1>:
+-[ 	]+0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+0:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+0:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+4:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+4:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+4:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+8:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+8:[ 	]+R_LARCH_PCALA64_LO20[ 	]+.L1
+-[ 	]+c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+c:[ 	]+R_LARCH_PCALA64_HI12[ 	]+.L1
+-[ 	]+10:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+14:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+14:[ 	]+R_LARCH_MARK_LA[ 	]+\*ABS\*
+-[ 	]+14:[ 	]+R_LARCH_ABS_HI20[ 	]+.L1
+-[ 	]+18:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+18:[ 	]+R_LARCH_ABS_LO12[ 	]+.L1
+-[ 	]+1c:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0,[ 	]+0
+-[ 	]+1c:[ 	]+R_LARCH_ABS64_LO20[ 	]+.L1
+-[ 	]+20:[ 	]+03000084[ 	]+lu52i.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+20:[ 	]+R_LARCH_ABS64_HI12[ 	]+.L1
+-[ 	]+24:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+24:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+24:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+28:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+28:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+2c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+2c:[ 	]+R_LARCH_PCALA64_LO20[ 	]+.L1
+-[ 	]+30:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+30:[ 	]+R_LARCH_PCALA64_HI12[ 	]+.L1
+-[ 	]+34:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+38:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+38:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+38:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+3c:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+3c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+3c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+40:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+40:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+.L1
+-[ 	]+44:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+44:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+.L1
+-[ 	]+48:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+4c:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+4c:[ 	]+R_LARCH_TLS_LE_HI20[ 	]+TLS1
+-[ 	]+50:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+50:[ 	]+R_LARCH_TLS_LE_LO12[ 	]+TLS1
+-[ 	]+54:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+54:[ 	]+R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
+-[ 	]+58:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+58:[ 	]+R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
+-[ 	]+5c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+5c:[ 	]+R_LARCH_TLS_IE64_PC_LO20[ 	]+TLS1
+-[ 	]+60:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+60:[ 	]+R_LARCH_TLS_IE64_PC_HI12[ 	]+TLS1
+-[ 	]+64:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+68:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+68:[ 	]+R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
+-[ 	]+6c:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+6c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+6c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+70:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+70:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+TLS1
+-[ 	]+74:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+74:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+TLS1
+-[ 	]+78:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+7c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+7c:[ 	]+R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
+-[ 	]+80:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+80:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+80:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+84:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+84:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+TLS1
+-[ 	]+88:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+88:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+TLS1
+-[ 	]+8c:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
++0+ <.L1>:
++   0:	1a000004 	pcalau12i   	\$a0, 0
++			0: R_LARCH_PCALA_HI20	.L1
++			0: R_LARCH_RELAX	\*ABS\*
++   4:	02c00005 	li.d        	\$a1, 0
++			4: R_LARCH_PCALA_LO12	.L1
++			4: R_LARCH_RELAX	\*ABS\*
++   8:	16000005 	lu32i.d     	\$a1, 0
++			8: R_LARCH_PCALA64_LO20	.L1
++   c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			c: R_LARCH_PCALA64_HI12	.L1
++  10:	00109484 	add.d       	\$a0, \$a0, \$a1
++  14:	1a000004 	pcalau12i   	\$a0, 0
++			14: R_LARCH_GOT_PC_HI20	.L1
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	02c00005 	li.d        	\$a1, 0
++			18: R_LARCH_GOT_PC_LO12	.L1
++			18: R_LARCH_RELAX	\*ABS\*
++  1c:	16000005 	lu32i.d     	\$a1, 0
++			1c: R_LARCH_GOT64_PC_LO20	.L1
++  20:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			20: R_LARCH_GOT64_PC_HI12	.L1
++  24:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  28:	1a000004 	pcalau12i   	\$a0, 0
++			28: R_LARCH_PCALA_HI20	.L1
++			28: R_LARCH_RELAX	\*ABS\*
++  2c:	02c00005 	li.d        	\$a1, 0
++			2c: R_LARCH_PCALA_LO12	.L1
++			2c: R_LARCH_RELAX	\*ABS\*
++  30:	16000005 	lu32i.d     	\$a1, 0
++			30: R_LARCH_PCALA64_LO20	.L1
++  34:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			34: R_LARCH_PCALA64_HI12	.L1
++  38:	00109484 	add.d       	\$a0, \$a0, \$a1
++  3c:	1a000004 	pcalau12i   	\$a0, 0
++			3c: R_LARCH_GOT_PC_HI20	.L1
++			3c: R_LARCH_RELAX	\*ABS\*
++  40:	02c00005 	li.d        	\$a1, 0
++			40: R_LARCH_GOT_PC_LO12	.L1
++			40: R_LARCH_RELAX	\*ABS\*
++  44:	16000005 	lu32i.d     	\$a1, 0
++			44: R_LARCH_GOT64_PC_LO20	.L1
++  48:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			48: R_LARCH_GOT64_PC_HI12	.L1
++  4c:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  50:	14000004 	lu12i.w     	\$a0, 0
++			50: R_LARCH_TLS_LE_HI20	TLS1
++  54:	03800084 	ori         	\$a0, \$a0, 0x0
++			54: R_LARCH_TLS_LE_LO12	TLS1
++  58:	1a000004 	pcalau12i   	\$a0, 0
++			58: R_LARCH_TLS_IE_PC_HI20	TLS1
++  5c:	02c00005 	li.d        	\$a1, 0
++			5c: R_LARCH_TLS_IE_PC_LO12	TLS1
++  60:	16000005 	lu32i.d     	\$a1, 0
++			60: R_LARCH_TLS_IE64_PC_LO20	TLS1
++  64:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			64: R_LARCH_TLS_IE64_PC_HI12	TLS1
++  68:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  6c:	1a000004 	pcalau12i   	\$a0, 0
++			6c: R_LARCH_TLS_LD_PC_HI20	TLS1
++			6c: R_LARCH_RELAX	\*ABS\*
++  70:	02c00005 	li.d        	\$a1, 0
++			70: R_LARCH_GOT_PC_LO12	TLS1
++			70: R_LARCH_RELAX	\*ABS\*
++  74:	16000005 	lu32i.d     	\$a1, 0
++			74: R_LARCH_GOT64_PC_LO20	TLS1
++  78:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			78: R_LARCH_GOT64_PC_HI12	TLS1
++  7c:	00109484 	add.d       	\$a0, \$a0, \$a1
++  80:	1a000004 	pcalau12i   	\$a0, 0
++			80: R_LARCH_TLS_GD_PC_HI20	TLS1
++			80: R_LARCH_RELAX	\*ABS\*
++  84:	02c00005 	li.d        	\$a1, 0
++			84: R_LARCH_GOT_PC_LO12	TLS1
++			84: R_LARCH_RELAX	\*ABS\*
++  88:	16000005 	lu32i.d     	\$a1, 0
++			88: R_LARCH_GOT64_PC_LO20	TLS1
++  8c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			8c: R_LARCH_GOT64_PC_HI12	TLS1
++  90:	00109484 	add.d       	\$a0, \$a0, \$a1
+diff --git a/include/elf/loongarch.h b/include/elf/loongarch.h
+index 41e9fe4d..6cfee164 100644
+--- a/include/elf/loongarch.h
++++ b/include/elf/loongarch.h
+@@ -273,6 +273,10 @@ RELOC_NUMBER (R_LARCH_TLS_DESC64_HI12, 118)
+ RELOC_NUMBER (R_LARCH_TLS_DESC_LD, 119)
+ RELOC_NUMBER (R_LARCH_TLS_DESC_CALL, 120)
+ 
++RELOC_NUMBER (R_LARCH_TLS_LD_PCREL20_S2, 124)
++RELOC_NUMBER (R_LARCH_TLS_GD_PCREL20_S2, 125)
++RELOC_NUMBER (R_LARCH_TLS_DESC_PCREL20_S2, 126)
++
+ END_RELOC_NUMBERS (R_LARCH_count)
+ 
+ /* Processor specific flags for the ELF header e_flags field.  */
+diff --git a/ld/testsuite/ld-loongarch-elf/macro_op.d b/ld/testsuite/ld-loongarch-elf/macro_op.d
+index edc71bc0..f0d87c03 100644
+--- a/ld/testsuite/ld-loongarch-elf/macro_op.d
++++ b/ld/testsuite/ld-loongarch-elf/macro_op.d
+@@ -1,200 +1,205 @@
+ #as:
+ #objdump: -dr
++#skip: loongarch32-*-*
+ 
+-.*:[    ]+file format .*
++.*:     file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-00000000.* <.L1>:
+-[ 	]+0:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+4:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+8:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+c:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+10:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+10:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+10:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+14:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+14:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+14:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+18:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+18:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+18:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+1c:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+1c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+1c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+20:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+20:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+20:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+24:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+24:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+24:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+28:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+.L1
+-[ 	]+2c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+2c:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+.L1
+-[ 	]+30:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+34:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+34:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+34:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+38:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+38:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+38:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+3c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+3c:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+3c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+40:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+40:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+40:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+44:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+44:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+.L1
+-[ 	]+48:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+48:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+.L1
+-[ 	]+4c:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+50:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+50:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+50:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+54:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+54:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+54:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+58:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+58:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+58:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+5c:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+5c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+5c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+60:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+60:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+.L1
+-[ 	]+64:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+64:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+.L1
+-[ 	]+68:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+6c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+6c:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+6c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+70:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+70:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+70:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+74:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+74:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+74:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+78:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+78:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+78:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+7c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+7c:[ 	]+R_LARCH_PCALA64_LO20[ 	]+.L1
+-[ 	]+80:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+80:[ 	]+R_LARCH_PCALA64_HI12[ 	]+.L1
+-[ 	]+84:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+88:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+88:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+88:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+8c:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+8c:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+8c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+90:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+90:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+90:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+94:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+94:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+94:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+98:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+98:[ 	]+R_LARCH_PCALA64_LO20[ 	]+.L1
+-[ 	]+9c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+9c:[ 	]+R_LARCH_PCALA64_HI12[ 	]+.L1
+-[ 	]+a0:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+a4:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+a4:[ 	]+R_LARCH_MARK_LA[ 	]+\*ABS\*
+-[ 	]+a4:[ 	]+R_LARCH_ABS_HI20[ 	]+.L1
+-[ 	]+a8:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+a8:[ 	]+R_LARCH_ABS_LO12[ 	]+.L1
+-[ 	]+ac:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0,[ 	]+0
+-[ 	]+ac:[ 	]+R_LARCH_ABS64_LO20[ 	]+.L1
+-[ 	]+b0:[ 	]+03000084[ 	]+lu52i.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+b0:[ 	]+R_LARCH_ABS64_HI12[ 	]+.L1
+-[ 	]+b4:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+b4:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+b4:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+b8:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+b8:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+b8:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+bc:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+bc:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+bc:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+c0:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+c0:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+c0:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+c4:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+c4:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+c4:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+c8:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+c8:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+c8:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+cc:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+cc:[ 	]+R_LARCH_PCALA64_LO20[ 	]+.L1
+-[ 	]+d0:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+d0:[ 	]+R_LARCH_PCALA64_HI12[ 	]+.L1
+-[ 	]+d4:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+d8:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+d8:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+d8:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+dc:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+dc:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+dc:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+e0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+e0:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+e0:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+e4:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+e4:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+e4:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+e8:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+e8:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+.L1
+-[ 	]+ec:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+ec:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+.L1
+-[ 	]+f0:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+f4:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+f4:[ 	]+R_LARCH_TLS_LE_HI20[ 	]+TLS1
+-[ 	]+f8:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+f8:[ 	]+R_LARCH_TLS_LE_LO12[ 	]+TLS1
+-[ 	]+fc:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+fc:[ 	]+R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
+-[ 	]+100:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+100:[ 	]+R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
+-[ 	]+104:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+104:[ 	]+R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
+-[ 	]+108:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+108:[ 	]+R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
+-[ 	]+10c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+10c:[ 	]+R_LARCH_TLS_IE64_PC_LO20[ 	]+TLS1
+-[ 	]+110:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+110:[ 	]+R_LARCH_TLS_IE64_PC_HI12[ 	]+TLS1
+-[ 	]+114:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+118:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+118:[ 	]+R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
+-[ 	]+11c:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+11c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+11c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+120:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+120:[ 	]+R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
+-[ 	]+124:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+124:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+124:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+128:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+128:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+TLS1
+-[ 	]+12c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+12c:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+TLS1
+-[ 	]+130:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
+-[ 	]+134:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+134:[ 	]+R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
+-[ 	]+138:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+138:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+138:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+13c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+13c:[ 	]+R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
+-[ 	]+140:[ 	]+02c00005[ 	]+li\.d[ 	]+\$a1,[ 	]+0
+-[ 	]+140:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+140:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+144:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1,[ 	]+0
+-[ 	]+144:[ 	]+R_LARCH_GOT64_PC_LO20[ 	]+TLS1
+-[ 	]+148:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1,[ 	]+\$a1,[ 	]+0
+-[ 	]+148:[ 	]+R_LARCH_GOT64_PC_HI12[ 	]+TLS1
+-[ 	]+14c:[ 	]+00109484[ 	]+add.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+\$a1
++0+ <.L1>:
++   0:	00150004 	move        	\$a0, \$zero
++   4:	02bffc04 	li.w        	\$a0, -1
++   8:	00150004 	move        	\$a0, \$zero
++   c:	02bffc04 	li.w        	\$a0, -1
++  10:	1a000004 	pcalau12i   	\$a0, 0
++			10: R_LARCH_GOT_PC_HI20	.L1
++			10: R_LARCH_RELAX	\*ABS\*
++  14:	28c00084 	ld.d        	\$a0, \$a0, 0
++			14: R_LARCH_GOT_PC_LO12	.L1
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	1a000004 	pcalau12i   	\$a0, 0
++			18: R_LARCH_GOT_PC_HI20	.L1
++			18: R_LARCH_RELAX	\*ABS\*
++  1c:	28c00084 	ld.d        	\$a0, \$a0, 0
++			1c: R_LARCH_GOT_PC_LO12	.L1
++			1c: R_LARCH_RELAX	\*ABS\*
++  20:	1a000004 	pcalau12i   	\$a0, 0
++			20: R_LARCH_GOT_PC_HI20	.L1
++			20: R_LARCH_RELAX	\*ABS\*
++  24:	02c00005 	li.d        	\$a1, 0
++			24: R_LARCH_GOT_PC_LO12	.L1
++			24: R_LARCH_RELAX	\*ABS\*
++  28:	16000005 	lu32i.d     	\$a1, 0
++			28: R_LARCH_GOT64_PC_LO20	.L1
++  2c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			2c: R_LARCH_GOT64_PC_HI12	.L1
++  30:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  34:	1a000004 	pcalau12i   	\$a0, 0
++			34: R_LARCH_GOT_PC_HI20	.L1
++			34: R_LARCH_RELAX	\*ABS\*
++  38:	28c00084 	ld.d        	\$a0, \$a0, 0
++			38: R_LARCH_GOT_PC_LO12	.L1
++			38: R_LARCH_RELAX	\*ABS\*
++  3c:	1a000004 	pcalau12i   	\$a0, 0
++			3c: R_LARCH_GOT_PC_HI20	.L1
++			3c: R_LARCH_RELAX	\*ABS\*
++  40:	02c00005 	li.d        	\$a1, 0
++			40: R_LARCH_GOT_PC_LO12	.L1
++			40: R_LARCH_RELAX	\*ABS\*
++  44:	16000005 	lu32i.d     	\$a1, 0
++			44: R_LARCH_GOT64_PC_LO20	.L1
++  48:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			48: R_LARCH_GOT64_PC_HI12	.L1
++  4c:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  50:	1a000004 	pcalau12i   	\$a0, 0
++			50: R_LARCH_GOT_PC_HI20	.L1
++			50: R_LARCH_RELAX	\*ABS\*
++  54:	28c00084 	ld.d        	\$a0, \$a0, 0
++			54: R_LARCH_GOT_PC_LO12	.L1
++			54: R_LARCH_RELAX	\*ABS\*
++  58:	1a000004 	pcalau12i   	\$a0, 0
++			58: R_LARCH_GOT_PC_HI20	.L1
++			58: R_LARCH_RELAX	\*ABS\*
++  5c:	02c00005 	li.d        	\$a1, 0
++			5c: R_LARCH_GOT_PC_LO12	.L1
++			5c: R_LARCH_RELAX	\*ABS\*
++  60:	16000005 	lu32i.d     	\$a1, 0
++			60: R_LARCH_GOT64_PC_LO20	.L1
++  64:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			64: R_LARCH_GOT64_PC_HI12	.L1
++  68:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  6c:	1a000004 	pcalau12i   	\$a0, 0
++			6c: R_LARCH_PCALA_HI20	.L1
++			6c: R_LARCH_RELAX	\*ABS\*
++  70:	02c00084 	addi.d      	\$a0, \$a0, 0
++			70: R_LARCH_PCALA_LO12	.L1
++			70: R_LARCH_RELAX	\*ABS\*
++  74:	1a000004 	pcalau12i   	\$a0, 0
++			74: R_LARCH_PCALA_HI20	.L1
++			74: R_LARCH_RELAX	\*ABS\*
++  78:	02c00005 	li.d        	\$a1, 0
++			78: R_LARCH_PCALA_LO12	.L1
++			78: R_LARCH_RELAX	\*ABS\*
++  7c:	16000005 	lu32i.d     	\$a1, 0
++			7c: R_LARCH_PCALA64_LO20	.L1
++  80:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			80: R_LARCH_PCALA64_HI12	.L1
++  84:	00109484 	add.d       	\$a0, \$a0, \$a1
++  88:	1a000004 	pcalau12i   	\$a0, 0
++			88: R_LARCH_PCALA_HI20	.L1
++			88: R_LARCH_RELAX	\*ABS\*
++  8c:	02c00084 	addi.d      	\$a0, \$a0, 0
++			8c: R_LARCH_PCALA_LO12	.L1
++			8c: R_LARCH_RELAX	\*ABS\*
++  90:	1a000004 	pcalau12i   	\$a0, 0
++			90: R_LARCH_PCALA_HI20	.L1
++			90: R_LARCH_RELAX	\*ABS\*
++  94:	02c00005 	li.d        	\$a1, 0
++			94: R_LARCH_PCALA_LO12	.L1
++			94: R_LARCH_RELAX	\*ABS\*
++  98:	16000005 	lu32i.d     	\$a1, 0
++			98: R_LARCH_PCALA64_LO20	.L1
++  9c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			9c: R_LARCH_PCALA64_HI12	.L1
++  a0:	00109484 	add.d       	\$a0, \$a0, \$a1
++  a4:	14000004 	lu12i.w     	\$a0, 0
++			a4: R_LARCH_MARK_LA	\*ABS\*
++			a4: R_LARCH_ABS_HI20	.L1
++  a8:	03800084 	ori         	\$a0, \$a0, 0x0
++			a8: R_LARCH_ABS_LO12	.L1
++  ac:	16000004 	lu32i.d     	\$a0, 0
++			ac: R_LARCH_ABS64_LO20	.L1
++  b0:	03000084 	lu52i.d     	\$a0, \$a0, 0
++			b0: R_LARCH_ABS64_HI12	.L1
++  b4:	1a000004 	pcalau12i   	\$a0, 0
++			b4: R_LARCH_PCALA_HI20	.L1
++			b4: R_LARCH_RELAX	\*ABS\*
++  b8:	02c00084 	addi.d      	\$a0, \$a0, 0
++			b8: R_LARCH_PCALA_LO12	.L1
++			b8: R_LARCH_RELAX	\*ABS\*
++  bc:	1a000004 	pcalau12i   	\$a0, 0
++			bc: R_LARCH_PCALA_HI20	.L1
++			bc: R_LARCH_RELAX	\*ABS\*
++  c0:	02c00084 	addi.d      	\$a0, \$a0, 0
++			c0: R_LARCH_PCALA_LO12	.L1
++			c0: R_LARCH_RELAX	\*ABS\*
++  c4:	1a000004 	pcalau12i   	\$a0, 0
++			c4: R_LARCH_PCALA_HI20	.L1
++			c4: R_LARCH_RELAX	\*ABS\*
++  c8:	02c00005 	li.d        	\$a1, 0
++			c8: R_LARCH_PCALA_LO12	.L1
++			c8: R_LARCH_RELAX	\*ABS\*
++  cc:	16000005 	lu32i.d     	\$a1, 0
++			cc: R_LARCH_PCALA64_LO20	.L1
++  d0:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			d0: R_LARCH_PCALA64_HI12	.L1
++  d4:	00109484 	add.d       	\$a0, \$a0, \$a1
++  d8:	1a000004 	pcalau12i   	\$a0, 0
++			d8: R_LARCH_GOT_PC_HI20	.L1
++			d8: R_LARCH_RELAX	\*ABS\*
++  dc:	28c00084 	ld.d        	\$a0, \$a0, 0
++			dc: R_LARCH_GOT_PC_LO12	.L1
++			dc: R_LARCH_RELAX	\*ABS\*
++  e0:	1a000004 	pcalau12i   	\$a0, 0
++			e0: R_LARCH_GOT_PC_HI20	.L1
++			e0: R_LARCH_RELAX	\*ABS\*
++  e4:	02c00005 	li.d        	\$a1, 0
++			e4: R_LARCH_GOT_PC_LO12	.L1
++			e4: R_LARCH_RELAX	\*ABS\*
++  e8:	16000005 	lu32i.d     	\$a1, 0
++			e8: R_LARCH_GOT64_PC_LO20	.L1
++  ec:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			ec: R_LARCH_GOT64_PC_HI12	.L1
++  f0:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++  f4:	14000004 	lu12i.w     	\$a0, 0
++			f4: R_LARCH_TLS_LE_HI20	TLS1
++  f8:	03800084 	ori         	\$a0, \$a0, 0x0
++			f8: R_LARCH_TLS_LE_LO12	TLS1
++  fc:	1a000004 	pcalau12i   	\$a0, 0
++			fc: R_LARCH_TLS_IE_PC_HI20	TLS1
++ 100:	28c00084 	ld.d        	\$a0, \$a0, 0
++			100: R_LARCH_TLS_IE_PC_LO12	TLS1
++ 104:	1a000004 	pcalau12i   	\$a0, 0
++			104: R_LARCH_TLS_IE_PC_HI20	TLS1
++ 108:	02c00005 	li.d        	\$a1, 0
++			108: R_LARCH_TLS_IE_PC_LO12	TLS1
++ 10c:	16000005 	lu32i.d     	\$a1, 0
++			10c: R_LARCH_TLS_IE64_PC_LO20	TLS1
++ 110:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			110: R_LARCH_TLS_IE64_PC_HI12	TLS1
++ 114:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
++ 118:	1a000004 	pcalau12i   	\$a0, 0
++			118: R_LARCH_TLS_LD_PC_HI20	TLS1
++			118: R_LARCH_RELAX	\*ABS\*
++ 11c:	02c00084 	addi.d      	\$a0, \$a0, 0
++			11c: R_LARCH_GOT_PC_LO12	TLS1
++			11c: R_LARCH_RELAX	\*ABS\*
++ 120:	1a000004 	pcalau12i   	\$a0, 0
++			120: R_LARCH_TLS_LD_PC_HI20	TLS1
++			120: R_LARCH_RELAX	\*ABS\*
++ 124:	02c00005 	li.d        	\$a1, 0
++			124: R_LARCH_GOT_PC_LO12	TLS1
++			124: R_LARCH_RELAX	\*ABS\*
++ 128:	16000005 	lu32i.d     	\$a1, 0
++			128: R_LARCH_GOT64_PC_LO20	TLS1
++ 12c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			12c: R_LARCH_GOT64_PC_HI12	TLS1
++ 130:	00109484 	add.d       	\$a0, \$a0, \$a1
++ 134:	1a000004 	pcalau12i   	\$a0, 0
++			134: R_LARCH_TLS_GD_PC_HI20	TLS1
++			134: R_LARCH_RELAX	\*ABS\*
++ 138:	02c00084 	addi.d      	\$a0, \$a0, 0
++			138: R_LARCH_GOT_PC_LO12	TLS1
++			138: R_LARCH_RELAX	\*ABS\*
++ 13c:	1a000004 	pcalau12i   	\$a0, 0
++			13c: R_LARCH_TLS_GD_PC_HI20	TLS1
++			13c: R_LARCH_RELAX	\*ABS\*
++ 140:	02c00005 	li.d        	\$a1, 0
++			140: R_LARCH_GOT_PC_LO12	TLS1
++			140: R_LARCH_RELAX	\*ABS\*
++ 144:	16000005 	lu32i.d     	\$a1, 0
++			144: R_LARCH_GOT64_PC_LO20	TLS1
++ 148:	030000a5 	lu52i.d     	\$a1, \$a1, 0
++			148: R_LARCH_GOT64_PC_HI12	TLS1
++ 14c:	00109484 	add.d       	\$a0, \$a0, \$a1
+diff --git a/ld/testsuite/ld-loongarch-elf/macro_op_32.d b/ld/testsuite/ld-loongarch-elf/macro_op_32.d
+index 188026a5..a7349aa8 100644
+--- a/ld/testsuite/ld-loongarch-elf/macro_op_32.d
++++ b/ld/testsuite/ld-loongarch-elf/macro_op_32.d
+@@ -2,66 +2,68 @@
+ #objdump: -dr
+ #skip: loongarch64-*-*
+ 
+-.*:[    ]+file format .*
++.*:     file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-00000000.* <.L1>:
+-[ 	]+0:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+4:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+8:[ 	]+00150004[ 	]+move[ 	]+\$a0,[ 	]+\$zero
+-[ 	]+c:[ 	]+02bffc04[ 	]+li\.w[ 	]+\$a0,[ 	]+-1
+-[ 	]+10:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+10:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+10:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+14:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+14:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+14:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+18:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+18:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+18:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+1c:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+1c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+1c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+20:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+20:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+20:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+24:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+24:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+24:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+28:[ 	]+R_LARCH_MARK_LA[ 	]+\*ABS\*
+-[ 	]+28:[ 	]+R_LARCH_ABS_HI20[ 	]+.L1
+-[ 	]+2c:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+2c:[ 	]+R_LARCH_ABS_LO12[ 	]+.L1
+-[ 	]+30:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+30:[ 	]+R_LARCH_PCALA_HI20[ 	]+.L1
+-[ 	]+30:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+34:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+34:[ 	]+R_LARCH_PCALA_LO12[ 	]+.L1
+-[ 	]+34:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+38:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+38:[ 	]+R_LARCH_GOT_PC_HI20[ 	]+.L1
+-[ 	]+38:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+3c:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+3c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+.L1
+-[ 	]+3c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+40:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0,[ 	]+0
+-[ 	]+40:[ 	]+R_LARCH_TLS_LE_HI20[ 	]+TLS1
+-[ 	]+44:[ 	]+03800084[ 	]+ori[ 	]+\$a0,[ 	]+\$a0,[ 	]+0x0
+-[ 	]+44:[ 	]+R_LARCH_TLS_LE_LO12[ 	]+TLS1
+-[ 	]+48:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+48:[ 	]+R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
+-[ 	]+4c:[ 	]+28800084[ 	]+ld.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+4c:[ 	]+R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
+-[ 	]+50:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+50:[ 	]+R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
+-[ 	]+54:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+54:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+54:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+58:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+58:[ 	]+R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
+-[ 	]+5c:[ 	]+02800084[ 	]+addi.w[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+5c:[ 	]+R_LARCH_GOT_PC_LO12[ 	]+TLS1
+-[ 	]+5c:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++0+ <.L1>:
++   0:	00150004 	move        	\$a0, \$zero
++   4:	02bffc04 	li.w        	\$a0, -1
++   8:	00150004 	move        	\$a0, \$zero
++   c:	02bffc04 	li.w        	\$a0, -1
++  10:	1a000004 	pcalau12i   	\$a0, 0
++			10: R_LARCH_GOT_PC_HI20	.L1
++			10: R_LARCH_RELAX	\*ABS\*
++  14:	28800084 	ld.w        	\$a0, \$a0, 0
++			14: R_LARCH_GOT_PC_LO12	.L1
++			14: R_LARCH_RELAX	\*ABS\*
++  18:	1a000004 	pcalau12i   	\$a0, 0
++			18: R_LARCH_GOT_PC_HI20	.L1
++			18: R_LARCH_RELAX	\*ABS\*
++  1c:	28800084 	ld.w        	\$a0, \$a0, 0
++			1c: R_LARCH_GOT_PC_LO12	.L1
++			1c: R_LARCH_RELAX	\*ABS\*
++  20:	1a000004 	pcalau12i   	\$a0, 0
++			20: R_LARCH_PCALA_HI20	.L1
++			20: R_LARCH_RELAX	\*ABS\*
++  24:	02800084 	addi.w      	\$a0, \$a0, 0
++			24: R_LARCH_PCALA_LO12	.L1
++			24: R_LARCH_RELAX	\*ABS\*
++  28:	14000004 	lu12i.w     	\$a0, 0
++			28: R_LARCH_MARK_LA	\*ABS\*
++			28: R_LARCH_ABS_HI20	.L1
++  2c:	03800084 	ori         	\$a0, \$a0, 0x0
++			2c: R_LARCH_ABS_LO12	.L1
++  30:	1a000004 	pcalau12i   	\$a0, 0
++			30: R_LARCH_PCALA_HI20	.L1
++			30: R_LARCH_RELAX	\*ABS\*
++  34:	02800084 	addi.w      	\$a0, \$a0, 0
++			34: R_LARCH_PCALA_LO12	.L1
++			34: R_LARCH_RELAX	\*ABS\*
++  38:	1a000004 	pcalau12i   	\$a0, 0
++			38: R_LARCH_GOT_PC_HI20	.L1
++			38: R_LARCH_RELAX	\*ABS\*
++  3c:	28800084 	ld.w        	\$a0, \$a0, 0
++			3c: R_LARCH_GOT_PC_LO12	.L1
++			3c: R_LARCH_RELAX	\*ABS\*
++  40:	14000004 	lu12i.w     	\$a0, 0
++			40: R_LARCH_TLS_LE_HI20	TLS1
++  44:	03800084 	ori         	\$a0, \$a0, 0x0
++			44: R_LARCH_TLS_LE_LO12	TLS1
++  48:	1a000004 	pcalau12i   	\$a0, 0
++			48: R_LARCH_TLS_IE_PC_HI20	TLS1
++  4c:	28800084 	ld.w        	\$a0, \$a0, 0
++			4c: R_LARCH_TLS_IE_PC_LO12	TLS1
++  50:	1a000004 	pcalau12i   	\$a0, 0
++			50: R_LARCH_TLS_LD_PC_HI20	TLS1
++			50: R_LARCH_RELAX	\*ABS\*
++  54:	02800084 	addi.w      	\$a0, \$a0, 0
++			54: R_LARCH_GOT_PC_LO12	TLS1
++			54: R_LARCH_RELAX	\*ABS\*
++  58:	1a000004 	pcalau12i   	\$a0, 0
++			58: R_LARCH_TLS_GD_PC_HI20	TLS1
++			58: R_LARCH_RELAX	\*ABS\*
++  5c:	02800084 	addi.w      	\$a0, \$a0, 0
++			5c: R_LARCH_GOT_PC_LO12	TLS1
++			5c: R_LARCH_RELAX	\*ABS\*
+-- 
+2.33.0
+

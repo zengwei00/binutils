@@ -1,0 +1,199 @@
+From 9ff4752d0f6d46ca0f7d275ea07e05790ac8dd1d Mon Sep 17 00:00:00 2001
+From: Jiajie Chen <c@jia.je>
+Date: Thu, 26 Oct 2023 17:35:13 +0800
+Subject: [PATCH] as: Add new atomic instructions in LoongArch v1.1
+
+LoongArch V1.1 release is out at
+https://github.com/loongson/LoongArch-Documentation.
+
+New atomic instructions in LoongArch v1.1:
+
+- sc.q
+- llacq.w/d
+- screl.w/d
+- amcas{_db}.b/h/w/d
+- amswap{_db}.b/h
+- amadd{_db}.b/h
+
+Signed-off-by: Jiajie Chen <c@jia.je>
+Signed-off-by: Peng Fan <fanpeng@loongson.cn>
+---
+ gas/config/tc-loongarch.c                   |  6 ++-
+ gas/testsuite/gas/loongarch/load_store_op.d | 42 +++++++++++++++++++++
+ gas/testsuite/gas/loongarch/load_store_op.s | 42 +++++++++++++++++++++
+ opcodes/loongarch-opc.c                     | 42 +++++++++++++++++++++
+ 4 files changed, 130 insertions(+), 2 deletions(-)
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index d1ce111c186..59232832cf7 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -893,8 +893,10 @@ check_this_insn_before_appending (struct loongarch_cl_insn *ip)
+       ip->reloc_num++;
+     }
+   else if (ip->insn->mask == 0xffff8000
+-	   /* amswap.w  rd, rk, rj  */
+-	   && ((ip->insn_bin & 0xfff00000) == 0x38600000
++	   /* amcas.b  rd, rk, rj  */
++	   && ((ip->insn_bin & 0xfff80000) == 0x38580000
++	       /* amswap.w  rd, rk, rj  */
++	       || (ip->insn_bin & 0xfff00000) == 0x38600000
+ 	       /* ammax_db.wu  rd, rk, rj  */
+ 	       || (ip->insn_bin & 0xffff0000) == 0x38700000
+ 	       /* ammin_db.wu  rd, rk, rj  */
+diff --git a/gas/testsuite/gas/loongarch/load_store_op.d b/gas/testsuite/gas/loongarch/load_store_op.d
+index e1b4dea1851..0ad83167bbc 100644
+--- a/gas/testsuite/gas/loongarch/load_store_op.d
++++ b/gas/testsuite/gas/loongarch/load_store_op.d
+@@ -176,3 +176,45 @@ Disassembly of section .text:
+  298:[ 	]+387e98a4 [ 	]+stle.h[ 	]+[ 	]+\$a0, \$a1, \$a2
+  29c:[ 	]+387f18a4 [ 	]+stle.w[ 	]+[ 	]+\$a0, \$a1, \$a2
+  2a0:[ 	]+387f98a4 [ 	]+stle.d[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2a4:[ 	]+385714c4 [ 	]+sc.q[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2a8:[ 	]+385714c4 [ 	]+sc.q[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2ac:[ 	]+385780a4 [ 	]+llacq.w[ 	]+[ 	]+\$a0, \$a1
++ 2b0:[ 	]+385780a4 [ 	]+llacq.w[ 	]+[ 	]+\$a0, \$a1
++ 2b4:[ 	]+385784a4 [ 	]+screl.w[ 	]+[ 	]+\$a0, \$a1
++ 2b8:[ 	]+385784a4 [ 	]+screl.w[ 	]+[ 	]+\$a0, \$a1
++ 2bc:[ 	]+385788a4 [ 	]+llacq.d[ 	]+[ 	]+\$a0, \$a1
++ 2c0:[ 	]+385788a4 [ 	]+llacq.d[ 	]+[ 	]+\$a0, \$a1
++ 2c4:[ 	]+38578ca4 [ 	]+screl.d[ 	]+[ 	]+\$a0, \$a1
++ 2c8:[ 	]+38578ca4 [ 	]+screl.d[ 	]+[ 	]+\$a0, \$a1
++ 2cc:[ 	]+385814c4 [ 	]+amcas.b[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2d0:[ 	]+385818a4 [ 	]+amcas.b[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 2d4:[ 	]+385894c4 [ 	]+amcas.h[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2d8:[ 	]+385898a4 [ 	]+amcas.h[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 2dc:[ 	]+385914c4 [ 	]+amcas.w[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2e0:[ 	]+385918a4 [ 	]+amcas.w[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 2e4:[ 	]+385994c4 [ 	]+amcas.d[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2e8:[ 	]+385998a4 [ 	]+amcas.d[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 2ec:[ 	]+385a14c4 [ 	]+amcas_db.b[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2f0:[ 	]+385a18a4 [ 	]+amcas_db.b[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 2f4:[ 	]+385a94c4 [ 	]+amcas_db.h[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 2f8:[ 	]+385a98a4 [ 	]+amcas_db.h[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 2fc:[ 	]+385b14c4 [ 	]+amcas_db.w[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 300:[ 	]+385b18a4 [ 	]+amcas_db.w[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 304:[ 	]+385b94c4 [ 	]+amcas_db.d[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 308:[ 	]+385b98a4 [ 	]+amcas_db.d[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 30c:[ 	]+385c14c4 [ 	]+amswap.b[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 310:[ 	]+385c18a4 [ 	]+amswap.b[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 314:[ 	]+385c94c4 [ 	]+amswap.h[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 318:[ 	]+385c98a4 [ 	]+amswap.h[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 31c:[ 	]+385d14c4 [ 	]+amadd.b[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 320:[ 	]+385d18a4 [ 	]+amadd.b[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 324:[ 	]+385d94c4 [ 	]+amadd.h[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 328:[ 	]+385d98a4 [ 	]+amadd.h[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 32c:[ 	]+385e14c4 [ 	]+amswap_db.b[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 330:[ 	]+385e18a4 [ 	]+amswap_db.b[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 334:[ 	]+385e94c4 [ 	]+amswap_db.h[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 338:[ 	]+385e98a4 [ 	]+amswap_db.h[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 33c:[ 	]+385f14c4 [ 	]+amadd_db.b[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 340:[ 	]+385f18a4 [ 	]+amadd_db.b[ 	]+[ 	]+\$a0, \$a2, \$a1
++ 344:[ 	]+385f94c4 [ 	]+amadd_db.h[ 	]+[ 	]+\$a0, \$a1, \$a2
++ 348:[ 	]+385f98a4 [ 	]+amadd_db.h[ 	]+[ 	]+\$a0, \$a2, \$a1
+diff --git a/gas/testsuite/gas/loongarch/load_store_op.s b/gas/testsuite/gas/loongarch/load_store_op.s
+index efbd124a29c..7912adb1090 100644
+--- a/gas/testsuite/gas/loongarch/load_store_op.s
++++ b/gas/testsuite/gas/loongarch/load_store_op.s
+@@ -167,3 +167,45 @@ stle.b  $r4,$r5,$r6
+ stle.h  $r4,$r5,$r6
+ stle.w  $r4,$r5,$r6
+ stle.d  $r4,$r5,$r6
++sc.q  $r4,$r5,$r6,0
++sc.q  $r4,$r5,$r6
++llacq.w  $r4,$r5,0
++llacq.w  $r4,$r5
++screl.w  $r4,$r5,0
++screl.w  $r4,$r5
++llacq.d  $r4,$r5,0
++llacq.d  $r4,$r5
++screl.d  $r4,$r5,0
++screl.d  $r4,$r5
++amcas.b  $r4,$r5,$r6,0
++amcas.b  $r4,$r6,$r5
++amcas.h  $r4,$r5,$r6,0
++amcas.h  $r4,$r6,$r5
++amcas.w  $r4,$r5,$r6,0
++amcas.w  $r4,$r6,$r5
++amcas.d  $r4,$r5,$r6,0
++amcas.d  $r4,$r6,$r5
++amcas_db.b  $r4,$r5,$r6,0
++amcas_db.b  $r4,$r6,$r5
++amcas_db.h  $r4,$r5,$r6,0
++amcas_db.h  $r4,$r6,$r5
++amcas_db.w  $r4,$r5,$r6,0
++amcas_db.w  $r4,$r6,$r5
++amcas_db.d  $r4,$r5,$r6,0
++amcas_db.d  $r4,$r6,$r5
++amswap.b  $r4,$r5,$r6,0
++amswap.b  $r4,$r6,$r5
++amswap.h  $r4,$r5,$r6,0
++amswap.h  $r4,$r6,$r5
++amadd.b  $r4,$r5,$r6,0
++amadd.b  $r4,$r6,$r5
++amadd.h  $r4,$r5,$r6,0
++amadd.h  $r4,$r6,$r5
++amswap_db.b  $r4,$r5,$r6,0
++amswap_db.b  $r4,$r6,$r5
++amswap_db.h  $r4,$r5,$r6,0
++amswap_db.h  $r4,$r6,$r5
++amadd_db.b  $r4,$r5,$r6,0
++amadd_db.b  $r4,$r6,$r5
++amadd_db.h  $r4,$r5,$r6,0
++amadd_db.h  $r4,$r6,$r5
+diff --git a/opcodes/loongarch-opc.c b/opcodes/loongarch-opc.c
+index 82b88bdad2a..e110735e857 100644
+--- a/opcodes/loongarch-opc.c
++++ b/opcodes/loongarch-opc.c
+@@ -816,6 +816,48 @@ static struct loongarch_opcode loongarch_load_store_opcodes[] =
+   { 0x38240000, 0xffff8000,	"ldx.hu",	"r0:5,r5:5,r10:5",		0,			0,	0,	0 },
+   { 0x38280000, 0xffff8000,	"ldx.wu",	"r0:5,r5:5,r10:5",		0,			0,	0,	0 },
+   { 0x382c0000, 0xffff8000,	"preldx",	"u0:5,r5:5,r10:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"sc.q",		"r,r,r,u0:0",			"sc.q %1,%2,%3",	0,	0,	0 },
++  { 0x38570000, 0xffff8000,	"sc.q",		"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"llacq.w",	"r,r,u0:0",			"llacq.w %1,%2",	0,	0,	0 },
++  { 0x38578000, 0xfffffc00,	"llacq.w",	"r0:5,r5:5",			0,			0,	0,	0 },
++  { 0x0,	0x0,		"screl.w",	"r,r,u0:0",			"screl.w %1,%2",	0,	0,	0 },
++  { 0x38578400, 0xfffffc00,	"screl.w",	"r0:5,r5:5",			0,			0,	0,	0 },
++  { 0x0,	0x0,		"llacq.d",	"r,r,u0:0",			"llacq.d %1,%2",	0,	0,	0 },
++  { 0x38578800, 0xfffffc00,	"llacq.d",	"r0:5,r5:5",			0,			0,	0,	0 },
++  { 0x0,	0x0,		"screl.d",	"r,r,u0:0",			"screl.d %1,%2",	0,	0,	0 },
++  { 0x38578c00, 0xfffffc00,	"screl.d",	"r0:5,r5:5",			0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas.b",	"r,r,r,u0:0",			"amcas.b %1,%2,%3",	0,	0,	0 },
++  { 0x38580000, 0xffff8000,	"amcas.b",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas.h",	"r,r,r,u0:0",			"amcas.h %1,%2,%3",	0,	0,	0 },
++  { 0x38588000, 0xffff8000,	"amcas.h",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas.w",	"r,r,r,u0:0",			"amcas.w %1,%2,%3",	0,	0,	0 },
++  { 0x38590000, 0xffff8000,	"amcas.w",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas.d",	"r,r,r,u0:0",			"amcas.d %1,%2,%3",	0,	0,	0 },
++  { 0x38598000, 0xffff8000,	"amcas.d",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas_db.b",	"r,r,r,u0:0",			"amcas_db.b %1,%2,%3",	0,	0,	0 },
++  { 0x385a0000, 0xffff8000,	"amcas_db.b",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas_db.h",	"r,r,r,u0:0",			"amcas_db.h %1,%2,%3",	0,	0,	0 },
++  { 0x385a8000, 0xffff8000,	"amcas_db.h",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas_db.w",	"r,r,r,u0:0",			"amcas_db.w %1,%2,%3",	0,	0,	0 },
++  { 0x385b0000, 0xffff8000,	"amcas_db.w",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amcas_db.d",	"r,r,r,u0:0",			"amcas_db.d %1,%2,%3",	0,	0,	0 },
++  { 0x385b8000, 0xffff8000,	"amcas_db.d",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amswap.b",	"r,r,r,u0:0",			"amswap.b %1,%2,%3",	0,	0,	0 },
++  { 0x385c0000, 0xffff8000,	"amswap.b",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amswap.h",	"r,r,r,u0:0",			"amswap.h %1,%2,%3",	0,	0,	0 },
++  { 0x385c8000, 0xffff8000,	"amswap.h",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amadd.b",	"r,r,r,u0:0",			"amadd.b %1,%2,%3",	0,	0,	0 },
++  { 0x385d0000, 0xffff8000,	"amadd.b",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amadd.h",	"r,r,r,u0:0",			"amadd.h %1,%2,%3",	0,	0,	0 },
++  { 0x385d8000, 0xffff8000,	"amadd.h",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amswap_db.b",	"r,r,r,u0:0",			"amswap_db.b %1,%2,%3",	0,	0,	0 },
++  { 0x385e0000, 0xffff8000,	"amswap_db.b",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amswap_db.h",	"r,r,r,u0:0",			"amswap_db.h %1,%2,%3",	0,	0,	0 },
++  { 0x385e8000, 0xffff8000,	"amswap_db.h",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amadd_db.b",	"r,r,r,u0:0",			"amadd_db.b %1,%2,%3",	0,	0,	0 },
++  { 0x385f0000, 0xffff8000,	"amadd_db.b",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
++  { 0x0,	0x0,		"amadd_db.h",	"r,r,r,u0:0",			"amadd_db.h %1,%2,%3",	0,	0,	0 },
++  { 0x385f8000, 0xffff8000,	"amadd_db.h",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
+   { 0x0,	0x0,		"amswap.w",	"r,r,r,u0:0",			"amswap.w %1,%2,%3",	0,	0,	0 },
+   { 0x38600000, 0xffff8000,	"amswap.w",	"r0:5,r10:5,r5:5",		0,			0,	0,	0 },
+   { 0x0,	0x0,		"amswap.d",	"r,r,r,u0:0",			"amswap.d %1,%2,%3",	0,	0,	0 },
+-- 
+2.33.0
+

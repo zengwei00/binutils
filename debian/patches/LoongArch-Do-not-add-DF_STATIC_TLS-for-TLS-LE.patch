@@ -1,0 +1,27 @@
+From 85e65d5f829b23397ad39ad610589421e29c0e32 Mon Sep 17 00:00:00 2001
+From: Tatsuyuki Ishi <ishitatsuyuki@gmail.com>
+Date: Thu, 28 Dec 2023 23:58:00 +0900
+Subject: [PATCH 047/123] LoongArch: Do not add DF_STATIC_TLS for TLS LE
+
+TLS LE is exclusively for executables, while DF_STATIC_TLS is for DLLs.
+DF_STATIC_TLS should only be set for TLS IE (and when it's DLL), not LE.
+---
+ bfd/elfnn-loongarch.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index b0ebe89e..f57b6152 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -863,8 +863,6 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	  if (!bfd_link_executable (info))
+ 	    return false;
+ 
+-	  info->flags |= DF_STATIC_TLS;
+-
+ 	  if (!loongarch_elf_record_tls_and_got_reference (abfd, info, h,
+ 							   r_symndx,
+ 							   GOT_TLS_LE))
+-- 
+2.33.0
+

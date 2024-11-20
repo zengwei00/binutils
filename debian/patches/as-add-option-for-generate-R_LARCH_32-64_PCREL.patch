@@ -1,0 +1,132 @@
+From fdcb71293e3a3ca4f699a34e2c1f76c42e799f9e Mon Sep 17 00:00:00 2001
+From: cailulu <cailulu@loongson.cn>
+Date: Thu, 28 Sep 2023 16:01:52 +0800
+Subject: [PATCH 011/123] as: add option for generate R_LARCH_32/64_PCREL.
+
+Some older kernels cannot handle the newly generated R_LARCH_32/64_PCREL,
+so the assembler generates R_LARCH_ADD32/64+R_LARCH_SUB32/64 by default,
+and use the assembler option mthin-add-sub to generate R_LARCH_32/64_PCREL
+as much as possible.
+
+The Option of mthin-add-sub does not affect the generation of R_LARCH_32_PCREL
+relocation in .eh_frame.
+---
+ gas/config/tc-loongarch.c  | 29 +++++++++++++++++++++++++++++
+ gas/config/tc-loongarch.h  | 13 +++++++------
+ include/opcode/loongarch.h |  1 +
+ 3 files changed, 37 insertions(+), 6 deletions(-)
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 38a51fc2..4c48382c 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -120,6 +120,7 @@ enum options
+   OPTION_LA_GLOBAL_WITH_ABS,
+   OPTION_RELAX,
+   OPTION_NO_RELAX,
++  OPTION_THIN_ADD_SUB,
+ 
+   OPTION_END_OF_ENUM,
+ };
+@@ -136,6 +137,7 @@ struct option md_longopts[] =
+ 
+   { "mrelax", no_argument, NULL, OPTION_RELAX },
+   { "mno-relax", no_argument, NULL, OPTION_NO_RELAX },
++  { "mthin-add-sub", no_argument, NULL, OPTION_THIN_ADD_SUB},
+ 
+   { NULL, no_argument, NULL, 0 }
+ };
+@@ -214,6 +216,10 @@ md_parse_option (int c, const char *arg)
+       LARCH_opts.relax = 0;
+       break;
+ 
++    case OPTION_THIN_ADD_SUB:
++      LARCH_opts.thin_add_sub = 1;
++      break;
++
+     case OPTION_IGNORE:
+       break;
+ 
+@@ -1197,6 +1203,7 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+   static int64_t stack_top;
+   static int last_reloc_is_sop_push_pcrel_1 = 0;
+   int last_reloc_is_sop_push_pcrel = last_reloc_is_sop_push_pcrel_1;
++  segT sub_segment;
+   last_reloc_is_sop_push_pcrel_1 = 0;
+ 
+   char *buf = fixP->fx_frag->fr_literal + fixP->fx_where;
+@@ -1289,6 +1296,23 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+ 	    }
+ 	}
+ 
++      /* If symbol in .eh_frame the address may be adjusted, and contents of
++	 .eh_frame will be adjusted, so use pc-relative relocation for FDE
++	 initial location.
++	 The Option of mthin-add-sub does not affect the generation of
++	 R_LARCH_32_PCREL relocation in .eh_frame.  */
++      if (fixP->fx_r_type == BFD_RELOC_32
++	  && fixP->fx_addsy && fixP->fx_subsy
++	  && (sub_segment = S_GET_SEGMENT (fixP->fx_subsy))
++	  && strcmp (sub_segment->name, ".eh_frame") == 0
++	  && S_GET_VALUE (fixP->fx_subsy)
++	  == fixP->fx_frag->fr_address + fixP->fx_where)
++	{
++	  fixP->fx_r_type = BFD_RELOC_LARCH_32_PCREL;
++	  fixP->fx_subsy = NULL;
++	  break;
++	}
++
+       if (fixP->fx_addsy && fixP->fx_subsy)
+ 	{
+ 	  fixP->fx_next = xmemdup (fixP, sizeof (*fixP), sizeof (*fixP));
+@@ -1591,6 +1615,11 @@ md_show_usage (FILE *stream)
+ {
+   fprintf (stream, _("LARCH options:\n"));
+   /* FIXME */
++  fprintf (stream, _("\
++  -mthin-add-sub	  Convert a pair of R_LARCH_ADD32/64 and R_LARCH_SUB32/64 to\n\
++			  R_LARCH_32/64_PCREL as much as possible\n\
++			  The option does not affect the generation of R_LARCH_32_PCREL\n\
++			  relocations in .eh_frame\n"));
+ }
+ 
+ static void
+diff --git a/gas/config/tc-loongarch.h b/gas/config/tc-loongarch.h
+index fd094356..4afa3842 100644
+--- a/gas/config/tc-loongarch.h
++++ b/gas/config/tc-loongarch.h
+@@ -75,12 +75,13 @@ extern bool loongarch_frag_align_code (int);
+    or PC at start of subsy or with relax but sub_symbol_segment not in
+    SEC_CODE, we generate 32/64_PCREL.  */
+ #define TC_FORCE_RELOCATION_SUB_LOCAL(FIX, SEG) \
+-  (!((BFD_RELOC_32 || BFD_RELOC_64) \
+-     &&(!LARCH_opts.relax \
+-       || S_GET_VALUE (FIX->fx_subsy) \
+-	  == FIX->fx_frag->fr_address + FIX->fx_where \
+-       || (LARCH_opts.relax \
+-	  && ((S_GET_SEGMENT (FIX->fx_subsy)->flags & SEC_CODE) == 0)))))
++  (!(LARCH_opts.thin_add_sub \
++     && (BFD_RELOC_32 || BFD_RELOC_64) \
++     && (!LARCH_opts.relax \
++	|| S_GET_VALUE (FIX->fx_subsy) \
++	   == FIX->fx_frag->fr_address + FIX->fx_where \
++	|| (LARCH_opts.relax \
++	   && ((S_GET_SEGMENT (FIX->fx_subsy)->flags & SEC_CODE) == 0)))))
+ 
+ #define TC_VALIDATE_FIX_SUB(FIX, SEG) 1
+ #define DIFF_EXPR_OK 1
+diff --git a/include/opcode/loongarch.h b/include/opcode/loongarch.h
+index e145db5e..2ed4082c 100644
+--- a/include/opcode/loongarch.h
++++ b/include/opcode/loongarch.h
+@@ -236,6 +236,7 @@ dec2 : [1-9][0-9]?
+ #define ase_gabs	isa.use_la_global_with_abs
+ 
+     int relax;
++    int thin_add_sub;
+   } LARCH_opts;
+ 
+   extern size_t loongarch_insn_length (insn_t insn);
+-- 
+2.33.0
+

@@ -1,0 +1,128 @@
+From cd51849c90e8fd13779bec69f5d4c7aadf03a532 Mon Sep 17 00:00:00 2001
+From: Jiajie Chen <c@jia.je>
+Date: Thu, 26 Oct 2023 17:35:14 +0800
+Subject: [PATCH] as: Add new estimated reciprocal instructions in LoongArch
+ v1.1
+
+New estimated reciprocal instructions in LoongArch v1.1:
+
+- frecipe.s/d
+- frsqrte.s/d
+- vfrecipe.s/d
+- vfrsqrte.s/d
+- xvfrecipe.s/d
+- xvfrsqrte.s/d
+
+Signed-off-by: Jiajie Chen <c@jia.je>
+Signed-off-by: Peng Fan <fanpeng@loongson.cn>
+---
+ gas/testsuite/gas/loongarch/float_op.d |  4 ++++
+ gas/testsuite/gas/loongarch/float_op.s |  4 ++++
+ gas/testsuite/gas/loongarch/vector.d   |  8 ++++++++
+ gas/testsuite/gas/loongarch/vector.s   |  8 ++++++++
+ opcodes/loongarch-opc.c                | 12 ++++++++++++
+ 5 files changed, 36 insertions(+)
+
+diff --git a/gas/testsuite/gas/loongarch/float_op.d b/gas/testsuite/gas/loongarch/float_op.d
+index f9d3b89e4a0..b09e7ba0f21 100644
+--- a/gas/testsuite/gas/loongarch/float_op.d
++++ b/gas/testsuite/gas/loongarch/float_op.d
+@@ -83,3 +83,7 @@ Disassembly of section .text:
+ [ 	]+124:[ 	]+011d2820 [ 	]+ffint.d.l[ 	]+[ 	]+\$fa0, \$fa1
+ [ 	]+128:[ 	]+011e4420 [ 	]+frint.s[ 	]+[ 	]+\$fa0, \$fa1
+ [ 	]+12c:[ 	]+011e4820 [ 	]+frint.d[ 	]+[ 	]+\$fa0, \$fa1
++[ 	]+130:[ 	]+01147420 [ 	]+frecipe.s[ 	]+[ 	]+\$fa0, \$fa1
++[ 	]+134:[ 	]+01147820 [ 	]+frecipe.d[ 	]+[ 	]+\$fa0, \$fa1
++[ 	]+138:[ 	]+01148420 [ 	]+frsqrte.s[ 	]+[ 	]+\$fa0, \$fa1
++[ 	]+13c:[ 	]+01148820 [ 	]+frsqrte.d[ 	]+[ 	]+\$fa0, \$fa1
+diff --git a/gas/testsuite/gas/loongarch/float_op.s b/gas/testsuite/gas/loongarch/float_op.s
+index 2e3ec5b8519..a83be3e3e48 100644
+--- a/gas/testsuite/gas/loongarch/float_op.s
++++ b/gas/testsuite/gas/loongarch/float_op.s
+@@ -74,3 +74,7 @@ ffint.d.w  $f0,$f1
+ ffint.d.l  $f0,$f1
+ frint.s  $f0,$f1
+ frint.d  $f0,$f1
++frecipe.s  $f0,$f1
++frecipe.d  $f0,$f1
++frsqrte.s  $f0,$f1
++frsqrte.d  $f0,$f1
+diff --git a/gas/testsuite/gas/loongarch/vector.d b/gas/testsuite/gas/loongarch/vector.d
+index 1a092bca3b8..4526b3d3640 100644
+--- a/gas/testsuite/gas/loongarch/vector.d
++++ b/gas/testsuite/gas/loongarch/vector.d
+@@ -1459,3 +1459,11 @@ Disassembly of section .text:
+ [ 	]+16a0:[ 	]+77e40420[ 	]+xvpermi.w[ 	]+\$xr0,[ 	]+\$xr1,[ 	]+0x1
+ [ 	]+16a4:[ 	]+77e80420[ 	]+xvpermi.d[ 	]+\$xr0,[ 	]+\$xr1,[ 	]+0x1
+ [ 	]+16a8:[ 	]+77ec0420[ 	]+xvpermi.q[ 	]+\$xr0,[ 	]+\$xr1,[ 	]+0x1
++[ 	]+16ac:[ 	]+729d1420[ 	]+vfrecipe.s[ 	]+\$vr0,[ 	]+\$vr1
++[ 	]+16b0:[ 	]+729d1820[ 	]+vfrecipe.d[ 	]+\$vr0,[ 	]+\$vr1
++[ 	]+16b4:[ 	]+729d2420[ 	]+vfrsqrte.s[ 	]+\$vr0,[ 	]+\$vr1
++[ 	]+16b8:[ 	]+729d2820[ 	]+vfrsqrte.d[ 	]+\$vr0,[ 	]+\$vr1
++[ 	]+16bc:[ 	]+769d1420[ 	]+xvfrecipe.s[ 	]+\$xr0,[ 	]+\$xr1
++[ 	]+16c0:[ 	]+769d1820[ 	]+xvfrecipe.d[ 	]+\$xr0,[ 	]+\$xr1
++[ 	]+16c4:[ 	]+769d2420[ 	]+xvfrsqrte.s[ 	]+\$xr0,[ 	]+\$xr1
++[ 	]+16c8:[ 	]+769d2820[ 	]+xvfrsqrte.d[ 	]+\$xr0,[ 	]+\$xr1
+diff --git a/gas/testsuite/gas/loongarch/vector.s b/gas/testsuite/gas/loongarch/vector.s
+index fe0369e763e..0283a4b4d53 100644
+--- a/gas/testsuite/gas/loongarch/vector.s
++++ b/gas/testsuite/gas/loongarch/vector.s
+@@ -1449,3 +1449,11 @@ xvldi	$xr0, 1
+ xvpermi.w	$xr0, $xr1, 1
+ xvpermi.d	$xr0, $xr1, 1
+ xvpermi.q	$xr0, $xr1, 1
++vfrecipe.s	$vr0, $vr1
++vfrecipe.d	$vr0, $vr1
++vfrsqrte.s	$vr0, $vr1
++vfrsqrte.d	$vr0, $vr1
++xvfrecipe.s	$xr0, $xr1
++xvfrecipe.d	$xr0, $xr1
++xvfrsqrte.s	$xr0, $xr1
++xvfrsqrte.d	$xr0, $xr1
+diff --git a/opcodes/loongarch-opc.c b/opcodes/loongarch-opc.c
+index e110735e857..15c7da6340c 100644
+--- a/opcodes/loongarch-opc.c
++++ b/opcodes/loongarch-opc.c
+@@ -482,6 +482,8 @@ static struct loongarch_opcode loongarch_single_float_opcodes[] =
+   { 0x01144400, 0xfffffc00,	"fsqrt.s",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x01145400, 0xfffffc00,	"frecip.s",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x01146400, 0xfffffc00,	"frsqrt.s",	"f0:5,f5:5",			0,			0,	0,	0 },
++  { 0x01147400, 0xfffffc00,	"frecipe.s",	"f0:5,f5:5",			0,			0,	0,	0 },
++  { 0x01148400, 0xfffffc00,	"frsqrte.s",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x01149400, 0xfffffc00,	"fmov.s",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x0114a400, 0xfffffc00,	"movgr2fr.w",	"f0:5,r5:5",			0,			0,	0,	0 },
+   { 0x0114ac00, 0xfffffc00,	"movgr2frh.w",	"f0:5,r5:5",			0,			0,	0,	0 },
+@@ -528,6 +530,8 @@ static struct loongarch_opcode loongarch_double_float_opcodes[] =
+   { 0x01144800, 0xfffffc00,	"fsqrt.d",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x01145800, 0xfffffc00,	"frecip.d",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x01146800, 0xfffffc00,	"frsqrt.d",	"f0:5,f5:5",			0,			0,	0,	0 },
++  { 0x01147800, 0xfffffc00,	"frecipe.d",	"f0:5,f5:5",			0,			0,	0,	0 },
++  { 0x01148800, 0xfffffc00,	"frsqrte.d",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x01149800, 0xfffffc00,	"fmov.d",	"f0:5,f5:5",			0,			0,	0,	0 },
+   { 0x0114a800, 0xfffffc00,	"movgr2fr.d",	"f0:5,r5:5",			0,			0,	0,	0 },
+   { 0x0114b800, 0xfffffc00,	"movfr2gr.d",	"r0:5,f5:5",			0,			0,	0,	0 },
+@@ -1424,6 +1428,10 @@ static struct loongarch_opcode loongarch_lsx_opcodes[] =
+   { 0x729cf800, 0xfffffc00, "vfrecip.d",	"v0:5,v5:5",		0, 0, 0, 0},
+   { 0x729d0400, 0xfffffc00, "vfrsqrt.s",	"v0:5,v5:5",		0, 0, 0, 0},
+   { 0x729d0800, 0xfffffc00, "vfrsqrt.d",	"v0:5,v5:5",		0, 0, 0, 0},
++  { 0x729d1400, 0xfffffc00, "vfrecipe.s",	"v0:5,v5:5",		0, 0, 0, 0},
++  { 0x729d1800, 0xfffffc00, "vfrecipe.d",	"v0:5,v5:5",		0, 0, 0, 0},
++  { 0x729d2400, 0xfffffc00, "vfrsqrte.s",	"v0:5,v5:5",		0, 0, 0, 0},
++  { 0x729d2800, 0xfffffc00, "vfrsqrte.d",	"v0:5,v5:5",		0, 0, 0, 0},
+   { 0x729d3400, 0xfffffc00, "vfrint.s",		"v0:5,v5:5",		0, 0, 0, 0},
+   { 0x729d3800, 0xfffffc00, "vfrint.d",		"v0:5,v5:5",		0, 0, 0, 0},
+   { 0x729d4400, 0xfffffc00, "vfrintrm.s",	"v0:5,v5:5",		0, 0, 0, 0},
+@@ -2169,6 +2177,10 @@ static struct loongarch_opcode loongarch_lasx_opcodes[] =
+   { 0x769cf800, 0xfffffc00, "xvfrecip.d",	"x0:5,x5:5",		0, 0, 0, 0},
+   { 0x769d0400, 0xfffffc00, "xvfrsqrt.s",	"x0:5,x5:5",		0, 0, 0, 0},
+   { 0x769d0800, 0xfffffc00, "xvfrsqrt.d",	"x0:5,x5:5",		0, 0, 0, 0},
++  { 0x769d1400, 0xfffffc00, "xvfrecipe.s",	"x0:5,x5:5",		0, 0, 0, 0},
++  { 0x769d1800, 0xfffffc00, "xvfrecipe.d",	"x0:5,x5:5",		0, 0, 0, 0},
++  { 0x769d2400, 0xfffffc00, "xvfrsqrte.s",	"x0:5,x5:5",		0, 0, 0, 0},
++  { 0x769d2800, 0xfffffc00, "xvfrsqrte.d",	"x0:5,x5:5",		0, 0, 0, 0},
+   { 0x769d3400, 0xfffffc00, "xvfrint.s",	"x0:5,x5:5",		0, 0, 0, 0},
+   { 0x769d3800, 0xfffffc00, "xvfrint.d",	"x0:5,x5:5",		0, 0, 0, 0},
+   { 0x769d4400, 0xfffffc00, "xvfrintrm.s",	"x0:5,x5:5",		0, 0, 0, 0},
+-- 
+2.33.0
+

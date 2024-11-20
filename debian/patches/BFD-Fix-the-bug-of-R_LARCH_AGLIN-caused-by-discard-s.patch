@@ -1,0 +1,226 @@
+From aef05e9e774983b4d4a5a08ab7e172e1e678eff5 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Wed, 24 Jan 2024 14:34:26 +0800
+Subject: [PATCH 075/123] BFD: Fix the bug of R_LARCH_AGLIN caused by discard
+ section
+
+To represent the first and third expression of .align, R_LARCH_ALIGN need to
+associate with a symbol. We define a local symbol for R_LARCH_AGLIN.
+But if the section of the local symbol is discarded, it may result in
+a undefined symbol error.
+
+Instead, we use the section name symbols, and this does not need to
+add extra symbols.
+
+During partial linking (ld -r), if the symbol associated with a relocation is
+STT_SECTION type, the addend of relocation needs to add the section output
+offset. We prevent it for R_LARCH_ALIGN.
+
+The elf_backend_data.rela_normal only can set all relocations of a target to
+rela_normal. Add a new function is_rela_normal to elf_backend_data, it can
+set part of relocations to rela_normal.
+---
+ bfd/elf-bfd.h                                   |  4 ++++
+ bfd/elflink.c                                   |  5 ++++-
+ bfd/elfnn-loongarch.c                           | 16 ++++++++++++++++
+ bfd/elfxx-target.h                              |  5 +++++
+ gas/config/tc-loongarch.c                       |  5 +----
+ gas/testsuite/gas/loongarch/relax_align.d       |  6 +++---
+ .../ld-loongarch-elf/relax-align-discard.lds    |  4 ++++
+ .../ld-loongarch-elf/relax-align-discard.s      | 17 +++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/relax.exp         | 12 ++++++++++++
+ 9 files changed, 66 insertions(+), 8 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-align-discard.lds
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-align-discard.s
+
+diff --git a/bfd/elf-bfd.h b/bfd/elf-bfd.h
+index ec856764..074120a5 100644
+--- a/bfd/elf-bfd.h
++++ b/bfd/elf-bfd.h
+@@ -1703,6 +1703,10 @@ struct elf_backend_data
+      backend relocate_section routine for relocatable linking.  */
+   unsigned rela_normal : 1;
+ 
++  /* Whether a relocation is rela_normal. Compared with rela_normal,
++     is_rela_normal can set part of relocations to rela_normal.  */
++  bool (*is_rela_normal) (Elf_Internal_Rela *);
++
+   /* Set if DT_REL/DT_RELA/DT_RELSZ/DT_RELASZ should not include PLT
+      relocations.  */
+   unsigned dtrel_excludes_plt : 1;
+diff --git a/bfd/elflink.c b/bfd/elflink.c
+index 7217c2f0..cbf87d70 100644
+--- a/bfd/elflink.c
++++ b/bfd/elflink.c
+@@ -11647,7 +11647,10 @@ elf_link_input_bfd (struct elf_final_link_info *flinfo, bfd *input_bfd)
+ 		    {
+ 		      rel_hash = PTR_ADD (esdo->rela.hashes, esdo->rela.count);
+ 		      rela_hash_list = rel_hash;
+-		      rela_normal = bed->rela_normal;
++		      if (bed->is_rela_normal != NULL)
++			rela_normal = bed->is_rela_normal (irela);
++		      else
++			rela_normal = bed->rela_normal;
+ 		    }
+ 
+ 		  irela->r_offset = _bfd_elf_section_offset (output_bfd,
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 1c3295f4..f6975957 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -5454,6 +5454,21 @@ elf_loongarch64_hash_symbol (struct elf_link_hash_entry *h)
+   return _bfd_elf_hash_symbol (h);
+ }
+ 
++/* If a relocation is rela_normal and the symbol associated with the
++   relocation is STT_SECTION type, the addend of the relocation would add
++   sec->output_offset when partial linking (ld -r).
++   See elf_backend_data.rela_normal and elf_link_input_bfd().
++   The addend of R_LARCH_ALIGN is used to represent the first and third
++   expression of .align, it should be a constant when linking.  */
++
++static bool
++loongarch_elf_is_rela_normal (Elf_Internal_Rela *rel)
++{
++  if (R_LARCH_ALIGN == ELFNN_R_TYPE (rel->r_info))
++    return false;
++  return true;
++}
++
+ #define TARGET_LITTLE_SYM loongarch_elfNN_vec
+ #define TARGET_LITTLE_NAME "elfNN-loongarch"
+ #define ELF_ARCH bfd_arch_loongarch
+@@ -5489,6 +5504,7 @@ elf_loongarch64_hash_symbol (struct elf_link_hash_entry *h)
+ #define elf_backend_grok_psinfo loongarch_elf_grok_psinfo
+ #define elf_backend_hash_symbol elf_loongarch64_hash_symbol
+ #define bfd_elfNN_bfd_relax_section loongarch_elf_relax_section
++#define elf_backend_is_rela_normal loongarch_elf_is_rela_normal
+ 
+ #define elf_backend_dtrel_excludes_plt 1
+ 
+diff --git a/bfd/elfxx-target.h b/bfd/elfxx-target.h
+index f8553006..385e40b7 100644
+--- a/bfd/elfxx-target.h
++++ b/bfd/elfxx-target.h
+@@ -703,6 +703,10 @@
+ #define elf_backend_rela_normal 0
+ #endif
+ 
++#ifndef elf_backend_is_rela_normal
++#define elf_backend_is_rela_normal NULL
++#endif
++
+ #ifndef elf_backend_dtrel_excludes_plt
+ #define elf_backend_dtrel_excludes_plt 0
+ #endif
+@@ -948,6 +952,7 @@ static const struct elf_backend_data elfNN_bed =
+   elf_backend_default_use_rela_p,
+   elf_backend_rela_plts_and_copies_p,
+   elf_backend_rela_normal,
++  elf_backend_is_rela_normal,
+   elf_backend_dtrel_excludes_plt,
+   elf_backend_sign_extend_vma,
+   elf_backend_want_got_plt,
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 51575757..1e835f51 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -1791,10 +1791,7 @@ loongarch_frag_align_code (int n, int max)
+      if (fragP->fr_subtype != 0 && offset > fragP->fr_subtype).  */
+   if (max > 0 && (bfd_vma) max < worst_case_bytes)
+     {
+-      s = symbol_find (".Lla-relax-align");
+-      if (s == NULL)
+-	s = (symbolS *)local_symbol_make (".Lla-relax-align", now_seg,
+-					  &zero_address_frag, 0);
++      s = symbol_find (now_seg->name);
+       ex.X_add_symbol = s;
+       ex.X_op = O_symbol;
+       ex.X_add_number = (max << 8) | n;
+diff --git a/gas/testsuite/gas/loongarch/relax_align.d b/gas/testsuite/gas/loongarch/relax_align.d
+index fc1fd032..acd215a4 100644
+--- a/gas/testsuite/gas/loongarch/relax_align.d
++++ b/gas/testsuite/gas/loongarch/relax_align.d
+@@ -7,7 +7,7 @@
+ 
+ Disassembly of section .text:
+ 
+-[ 	]*0000000000000000 <.Lla-relax-align>:
++[ 	]*0000000000000000 <.text>:
+ [ 	]+0:[ 	]+4c000020[ 	]+ret
+ [ 	]+4:[ 	]+03400000[ 	]+nop
+ [ 	]+4: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
+@@ -20,12 +20,12 @@ Disassembly of section .text:
+ [ 	]+1c:[ 	]+03400000[ 	]+nop
+ [ 	]+20:[ 	]+4c000020[ 	]+ret
+ [ 	]+24:[ 	]+03400000[ 	]+nop
+-[ 	]+24: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0x104
++[ 	]+24: R_LARCH_ALIGN[ 	]+.text\+0x104
+ [ 	]+28:[ 	]+03400000[ 	]+nop
+ [ 	]+2c:[ 	]+03400000[ 	]+nop
+ [ 	]+30:[ 	]+4c000020[ 	]+ret
+ [ 	]+34:[ 	]+03400000[ 	]+nop
+-[ 	]+34: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0xb04
++[ 	]+34: R_LARCH_ALIGN[ 	]+.text\+0xb04
+ [ 	]+38:[ 	]+03400000[ 	]+nop
+ [ 	]+3c:[ 	]+03400000[ 	]+nop
+ [ 	]+40:[ 	]+4c000020[ 	]+ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align-discard.lds b/ld/testsuite/ld-loongarch-elf/relax-align-discard.lds
+new file mode 100644
+index 00000000..4a81323d
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-align-discard.lds
+@@ -0,0 +1,4 @@
++SECTIONS
++{
++  /DISCARD/ : { *(.another.*) }
++}
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align-discard.s b/ld/testsuite/ld-loongarch-elf/relax-align-discard.s
+new file mode 100644
+index 00000000..b65d63f3
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-align-discard.s
+@@ -0,0 +1,17 @@
++# Use the section name symbol for R_LARCH_ALIGN to avoid discard section problem
++.section ".another.text", "ax"
++.cfi_startproc
++break 0
++.cfi_def_cfa_offset 16
++.p2align 5
++break 1
++.cfi_endproc
++
++.text
++.cfi_startproc
++break 0
++.cfi_def_cfa_offset 16
++.p2align 5
++break 1
++.cfi_endproc
++
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index bca3e1bd..f378b93b 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -295,6 +295,18 @@ if [istarget loongarch64-*-*] {
+ 		"relax-align" \
+ 	    ] \
+ 	]
++
++    run_ld_link_tests \
++      [list \
++	[list \
++	  "loongarch relax align discard" \
++	  "-e 0x0 -T relax-align-discard.lds -r" "" \
++	  "" \
++	  {relax-align-discard.s} \
++	  {} \
++	  "relax-align-discard" \
++	] \
++      ]
+   }
+ 
+   set objdump_flags "-s -j .data"
+-- 
+2.33.0
+

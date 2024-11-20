@@ -1,0 +1,247 @@
+From aa0064d1240e10856f352516f6097f3e75c5e463 Mon Sep 17 00:00:00 2001
+From: cailulu <cailulu@loongson.cn>
+Date: Fri, 1 Sep 2023 11:09:01 +0800
+Subject: [PATCH 007/123] Add testcase for generation of 32/64_PCREL.
+
+---
+ gas/testsuite/gas/loongarch/pcrel_norelax.d | 56 +++++++++++++++++++
+ gas/testsuite/gas/loongarch/pcrel_norelax.s | 42 +++++++++++++++
+ gas/testsuite/gas/loongarch/pcrel_relax.d   | 60 +++++++++++++++++++++
+ gas/testsuite/gas/loongarch/pcrel_relax.s   | 46 ++++++++++++++++
+ 4 files changed, 204 insertions(+)
+ create mode 100644 gas/testsuite/gas/loongarch/pcrel_norelax.d
+ create mode 100644 gas/testsuite/gas/loongarch/pcrel_norelax.s
+ create mode 100644 gas/testsuite/gas/loongarch/pcrel_relax.d
+ create mode 100644 gas/testsuite/gas/loongarch/pcrel_relax.s
+
+diff --git a/gas/testsuite/gas/loongarch/pcrel_norelax.d b/gas/testsuite/gas/loongarch/pcrel_norelax.d
+new file mode 100644
+index 00000000..842c8d48
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/pcrel_norelax.d
+@@ -0,0 +1,56 @@
++#as: -mno-relax
++#objdump: -Dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++00000000.* <.L1>:
++[ 	]+...
++[ 	]+0:[ 	]+R_LARCH_32_PCREL[ 	]+.L3
++[ 	]+4:[ 	]+R_LARCH_32_PCREL[ 	]+.L3\+0x4
++
++0*00000008[ ]+<.L2>:
++[ 	]+...
++[ 	]+8:[ 	]+R_LARCH_64_PCREL[ 	]+.L3
++[ 	]+10:[ 	]+R_LARCH_64_PCREL[ 	]+.L3\+0x8
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sx:
++
++0*00000000[ ]+<.L3>:
++[ 	]+0:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+8:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
++
++0*0000000c[ ]+<.L4>:
++[ 	]+...
++[ 	]+c:[ 	]+R_LARCH_ADD32[ 	]+.L4
++[ 	]+c:[ 	]+R_LARCH_SUB32[ 	]+.L5
++[ 	]+10:[ 	]+R_LARCH_ADD64[ 	]+.L4
++[ 	]+10:[ 	]+R_LARCH_SUB64[ 	]+.L5
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sy:
++
++0*00000000[ ]+<.L5>:
++[ 	]+...
++[ 	]+0:[ 	]+R_LARCH_32_PCREL[ 	]+.L1
++[ 	]+4:[ 	]+R_LARCH_32_PCREL[ 	]+.L2\+0x4
++[ 	]+8:[ 	]+R_LARCH_64_PCREL[ 	]+.L1\+0x8
++[ 	]+10:[ 	]+R_LARCH_64_PCREL[ 	]+.L2\+0x10
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sz:
++
++0*00000000[ ]+<sz>:
++[ 	]+0:[ 	]+fffffff8[ 	]+.word[ 	]+0xfffffff8
++[ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+8:[ 	]+00000000[ 	]+.word[ 	]+0x00000000
++[ 	]+8:[ 	]+R_LARCH_ADD32[ 	]+.L2
++[ 	]+8:[ 	]+R_LARCH_SUB32[ 	]+.L3
++[ 	]+c:[ 	]+fffffff8[ 	]+.word[ 	]+0xfffffff8
++[ 	]+10:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
++[ 	]+14:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+18:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
++[ 	]+...
++[ 	]+1c:[ 	]+R_LARCH_ADD64[ 	]+.L2
++[ 	]+1c:[ 	]+R_LARCH_SUB64[ 	]+.L3
+diff --git a/gas/testsuite/gas/loongarch/pcrel_norelax.s b/gas/testsuite/gas/loongarch/pcrel_norelax.s
+new file mode 100644
+index 00000000..09527f14
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/pcrel_norelax.s
+@@ -0,0 +1,42 @@
++  .section .text
++.L1:
++  # 32_pcrel
++  .4byte .L3-.L1
++  .4byte .L3-.L1
++.L2:
++  # 64_pcrel
++  .8byte .L3-.L2
++  .8byte .L3-.L2
++
++  .section sx
++.L3:
++  # no relocation
++  .4byte .L3-.L4
++  .8byte .L3-.L4
++.L4:
++  # add32+sub32
++  .4byte .L4-.L5
++  # add64+sub64
++  .8byte .L4-.L5
++
++  .section sy
++.L5:
++  # 32_pcrel
++  .4byte .L1-.L5
++  .4byte .L2-.L5
++  # 64_pcrel
++  .8byte .L1-.L5
++  .8byte .L2-.L5
++
++  .section sz
++  # no relocation
++  .4byte .L1-.L2
++  .4byte .L3-.L4
++  # add32+sub32
++  .4byte .L2-.L3
++
++  # no relocation
++  .8byte .L1-.L2
++  .8byte .L3-.L4
++  # add64+sub64
++  .8byte .L2-.L3
+diff --git a/gas/testsuite/gas/loongarch/pcrel_relax.d b/gas/testsuite/gas/loongarch/pcrel_relax.d
+new file mode 100644
+index 00000000..d6f87525
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/pcrel_relax.d
+@@ -0,0 +1,60 @@
++#as:
++#objdump: -Dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++00000000.* <.L1>:
++[ 	]+...
++[ 	]+0:[ 	]+R_LARCH_32_PCREL[ 	]+.L3
++[ 	]+4:[ 	]+R_LARCH_ADD32[ 	]+.L3
++[ 	]+4:[ 	]+R_LARCH_SUB32[ 	]+.L1
++
++0*00000008[ ]+<.L2>:
++[ 	]+...
++[ 	]+8:[ 	]+R_LARCH_64_PCREL[ 	]+.L3
++[ 	]+10:[ 	]+R_LARCH_ADD64[ 	]+.L3
++[ 	]+10:[ 	]+R_LARCH_SUB64[ 	]+.L2
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sx:
++
++0*00000000[ ]+<.L3>:
++[ 	]+0:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+8:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
++
++0*0000000c[ ]+<.L4>:
++[ 	]+...
++[ 	]+c:[ 	]+R_LARCH_ADD32[ 	]+.L4
++[ 	]+c:[ 	]+R_LARCH_SUB32[ 	]+.L5
++[ 	]+10:[ 	]+R_LARCH_ADD64[ 	]+.L4
++[ 	]+10:[ 	]+R_LARCH_SUB64[ 	]+.L5
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sy:
++
++0*00000000[ ]+<.L5>:
++[ 	]+...
++[ 	]+0:[ 	]+R_LARCH_32_PCREL[ 	]+.L1
++[ 	]+4:[ 	]+R_LARCH_32_PCREL[ 	]+.L3\+0x4
++[ 	]+8:[ 	]+R_LARCH_64_PCREL[ 	]+.L1\+0x8
++[ 	]+10:[ 	]+R_LARCH_64_PCREL[ 	]+.L3\+0x10
++
++Disassembly[ 	]+of[ 	]+section[ 	]+sz:
++
++0*00000000[ ]+<sz>:
++[ 	]+0:[ 	]+00000000[ 	]+.word[ 	]+0x00000000
++[ 	]+0:[ 	]+R_LARCH_ADD32[ 	]+.L1
++[ 	]+0:[ 	]+R_LARCH_SUB32[ 	]+.L2
++[ 	]+4:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+...
++[ 	]+8:[ 	]+R_LARCH_ADD32[ 	]+.L3
++[ 	]+8:[ 	]+R_LARCH_SUB32[ 	]+.L5
++[ 	]+c:[ 	]+R_LARCH_ADD64[ 	]+.L1
++[ 	]+c:[ 	]+R_LARCH_SUB64[ 	]+.L2
++[ 	]+14:[ 	]+fffffff4[ 	]+.word[ 	]+0xfffffff4
++[ 	]+18:[ 	]+ffffffff[ 	]+.word[ 	]+0xffffffff
++[ 	]+...
++[ 	]+1c:[ 	]+R_LARCH_ADD64[ 	]+.L3
++[ 	]+1c:[ 	]+R_LARCH_SUB64[ 	]+.L5
+diff --git a/gas/testsuite/gas/loongarch/pcrel_relax.s b/gas/testsuite/gas/loongarch/pcrel_relax.s
+new file mode 100644
+index 00000000..ded275fa
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/pcrel_relax.s
+@@ -0,0 +1,46 @@
++  .section .text
++.L1:
++  # 32_pcrel
++  .4byte .L3-.L1
++  # add32+sub32
++  .4byte .L3-.L1
++.L2:
++  # 64_pcrel
++  .8byte .L3-.L2
++  # add64+sub64
++  .8byte .L3-.L2
++
++  .section sx
++.L3:
++  # no relocation
++  .4byte .L3-.L4
++  .8byte .L3-.L4
++.L4:
++  # add32+sub32
++  .4byte .L4-.L5
++  # add64+sub64
++  .8byte .L4-.L5
++
++  .section sy
++.L5:
++  # 32_pcrel
++  .4byte .L1-.L5
++  .4byte .L3-.L5
++  # 64_pcrel
++  .8byte .L1-.L5
++  .8byte .L3-.L5
++
++  .section sz
++  # add32+sub32
++  .4byte .L1-.L2
++  # no relocation
++  .4byte .L3-.L4
++  # add32+sub32
++  .4byte .L3-.L5
++
++  #add64+sub64
++  .8byte .L1-.L2
++  # no relocation
++  .8byte .L3-.L4
++  #add64+sub64
++  .8byte .L3-.L5
+-- 
+2.33.0
+

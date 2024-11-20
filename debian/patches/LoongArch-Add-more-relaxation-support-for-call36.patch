@@ -1,0 +1,266 @@
+From 0638980f66ece88b89b96746aba82c1f5cd6d6eb Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 10 Oct 2024 16:23:30 +0800
+Subject: [PATCH 117/123] LoongArch: Add more relaxation support for call36
+
+Add relaxation support for call36 that jump to PLT entry.
+
+Add relaxation support for call36 with IFUNC symbol.
+
+Add relaxation support for call36 that jump to undefweak symbol.
+For undefweak symbol, it can always be relaxed if it have no PLT entry.
+Because we set the address of undefweak symbol without PLT entry to PC
+like relocate_section.
+---
+ bfd/elfnn-loongarch.c                         |  21 +++-
+ .../ld-loongarch-elf/relax-call36-exe.s       |  32 ++++++
+ .../ld-loongarch-elf/relax-call36-so.s        |  35 ++++++
+ ld/testsuite/ld-loongarch-elf/relax.exp       | 105 ++++++++++++++++++
+ 4 files changed, 190 insertions(+), 3 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-call36-exe.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-call36-so.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 70522fae..890233d1 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -5434,7 +5434,8 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  Elf_Internal_Sym *sym = (Elf_Internal_Sym *)symtab_hdr->contents
+ 				    + r_symndx;
+ 
+-	  if (ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC)
++	  if (ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC
++	      && r_type != R_LARCH_CALL36)
+ 	    continue;
+ 
+ 	  /* Only TLS instruction sequences that are accompanied by
+@@ -5467,8 +5468,8 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	}
+       else
+ 	{
+-	  /* Disable the relaxation for ifunc.  */
+-	  if (h != NULL && h->type == STT_GNU_IFUNC)
++	  if (h != NULL && h->type == STT_GNU_IFUNC
++	      && r_type != R_LARCH_CALL36)
+ 	    continue;
+ 
+ 	  /* The GOT entry of tls symbols must in current execute file or
+@@ -5485,6 +5486,20 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 		    && GOT_TLS_GD_BOTH_P (tls_type))
+ 		symval += 2 * GOT_ENTRY_SIZE;
+ 	    }
++	  else if (h->plt.offset != MINUS_ONE)
++	    {
++	      sym_sec = htab->elf.splt ? htab->elf.splt : htab->elf.iplt;
++	      symval = h->plt.offset;
++	    }
++	  /* Like loongarch_elf_relocate_section, set relocation(offset) to 0.
++	     Undefweak for other relocations handing in the future.  */
++	  else if (h->root.type == bfd_link_hash_undefweak
++		    && !h->root.linker_def
++		    && r_type == R_LARCH_CALL36)
++	    {
++	      sym_sec = sec;
++	      symval = rel->r_offset;
++	    }
+ 	  else if ((h->root.type == bfd_link_hash_defined
+ 		  || h->root.type == bfd_link_hash_defweak)
+ 		&& h->root.u.def.section != NULL
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-call36-exe.s b/ld/testsuite/ld-loongarch-elf/relax-call36-exe.s
+new file mode 100644
+index 00000000..26cff4df
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-call36-exe.s
+@@ -0,0 +1,32 @@
++ldd: # local define default
++call36 ldd # ldd
++
++ldh: # local define hidden
++.hidden ldh
++call36 ldh # ldh
++
++gdd:
++.global gdd # global define default
++call36 gdd # gdd@plt
++
++gdh:
++.global gdh # global define hidden
++.hidden gdh
++call36 gdh # gdh
++
++wdd:
++.weak wdd # weak define default
++call36 wdd # wdd@plt
++
++.weak wud # weak undefine default
++call36 wud # wud@plt
++
++wdh:
++.weak wdh # weak define hidden
++.hidden wdh
++call36 wdh # wdh
++
++.weak wuh # weak undefine hidden
++.hidden wuh
++call36 wuh # wuh
++
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-call36-so.s b/ld/testsuite/ld-loongarch-elf/relax-call36-so.s
+new file mode 100644
+index 00000000..050273b0
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-call36-so.s
+@@ -0,0 +1,35 @@
++ldd: # local define default
++call36 ldd # ldd
++
++ldh: # local define hidden
++.hidden ldh
++call36 ldh # ldh
++
++gdd:
++.global gdd # global define default
++call36 gdd # gdd@plt
++
++.global gud # global undefine default
++call36 gud # gud@plt
++
++gdh:
++.global gdh # global define hidden
++.hidden gdh
++call36 gdh # gdh
++
++wdd:
++.weak wdd # weak define default
++call36 wdd # wdd@plt
++
++.weak wud # weak undefine default
++call36 wud # wud@plt
++
++wdh:
++.weak wdh # weak define hidden
++.hidden wdh
++call36 wdh # wdh
++
++.weak wuh # weak undefine hidden
++.hidden wuh
++call36 wuh # wuh
++
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index 05b268f4..57ea3877 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -51,6 +51,111 @@ if [istarget loongarch64-*-*] {
+     run_dump_test "relax-align-ignore-start"
+     run_partial_linking_align_test
+ 
++    run_ld_link_tests \
++      [list \
++	[list \
++	"loongarch relax call36 .so build" \
++	"-shared" "" \
++	"" \
++	{relax-call36-so.s} \
++	{} \
++	"relax-call36.so" \
++	] \
++      ]
++
++    if [file exist "tmpdir/relax-call36.so"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-call36.so"]
++      if { [ regexp "pcaddu18i" $objdump_output] } {
++	fail "loongarch relax call36 so"
++      } {
++	pass "loongarch relax call36 so"
++      }
++    }
++
++    run_ld_link_tests \
++      [list \
++	[list \
++	"loongarch relax call36 dyn exe build" \
++	"-pie -e 0" "" \
++	"" \
++	{relax-call36-exe.s} \
++	{} \
++	"relax-call36-d.exe" \
++	] \
++      ]
++
++    if [file exist "tmpdir/relax-call36-d.exe"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-call36-d.exe"]
++      if { [ regexp "pcaddu18i" $objdump_output] } {
++	fail "loongarch relax call36 dyn exe"
++      } {
++	pass "loongarch relax call36 dyn exe"
++      }
++    }
++
++    run_ld_link_tests \
++      [list \
++	[list \
++	"loongarch relax call36 dyn-pie exe build" \
++	"-pie -e 0" "" \
++	"" \
++	{relax-call36-exe.s} \
++	{} \
++	"relax-call36-dp.exe" \
++	] \
++      ]
++
++    if [file exist "tmpdir/relax-call36-dp.exe"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-call36-dp.exe"]
++      if { [ regexp "pcaddu18i" $objdump_output] } {
++	fail "loongarch relax call36 dyn-pie exe"
++      } {
++	pass "loongarch relax call36 dyn-pie exe"
++      }
++    }
++
++    run_ld_link_tests \
++      [list \
++	[list \
++	"loongarch relax call36 static exe build" \
++	"-static -e 0" "" \
++	"" \
++	{relax-call36-exe.s} \
++	{} \
++	"relax-call36-s.exe" \
++	] \
++      ]
++
++    if [file exist "tmpdir/relax-call36-s.exe"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-call36-s.exe"]
++      if { [ regexp "pcaddu18i" $objdump_output] } {
++	fail "loongarch relax call36 static exe"
++      } {
++	pass "loongarch relax call36 static exe"
++      }
++    }
++
++    run_ld_link_tests \
++      [list \
++	[list \
++	"loongarch relax call36 static-pie exe build" \
++	"-static -pie --no-dynamic-linker -e 0" "" \
++	"" \
++	{relax-call36-exe.s} \
++	{} \
++	"relax-call36-sp.exe" \
++	] \
++      ]
++
++    if [file exist "tmpdir/relax-call36-sp.exe"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-call36-sp.exe"]
++      if { [ regexp "pcaddu18i" $objdump_output] } {
++	fail "loongarch relax call36 static-pie exe"
++      } {
++	pass "loongarch relax call36 static-pie exe"
++      }
++    }
++
+     run_ld_link_tests \
+ 	[list \
+ 	    [list \
+-- 
+2.33.0
+

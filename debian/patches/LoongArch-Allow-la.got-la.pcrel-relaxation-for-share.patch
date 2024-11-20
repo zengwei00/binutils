@@ -1,0 +1,68 @@
+From f1cef8611e241100dc6da362d27382b7fd543143 Mon Sep 17 00:00:00 2001
+From: Xi Ruoyao <xry111@xry111.site>
+Date: Wed, 6 Dec 2023 03:05:47 +0800
+Subject: [PATCH 022/123] LoongArch: Allow la.got -> la.pcrel relaxation for
+ shared object
+
+Even in shared objects, la.got -> la.pcrel relaxation can still be
+performed for symbols with hidden visibility. For example, if a.c is:
+
+    extern int x;
+    int f() { return x++; }
+
+and b.c is:
+
+    int x = 114514;
+
+If compiling and linking with:
+
+    gcc -shared -fPIC -O2 -fvisibility=hidden a.c b.c
+
+Then the la.got in a.o should be relaxed to la.pcrel, and the resulted f
+should be like:
+
+    pcaddi  $t0, x
+    ldptr.w $a0, $t0, 0
+    addi.w  $t1, $a0, 1
+    stptr.w $t1, $t0, 0
+    ret
+
+Remove bfd_link_executable from the condition of la.got -> la.pcrel
+relaxation so this will really happen.  The SYMBOL_REFERENCES_LOCAL
+check is enough not to wrongly relax preemptable symbols (for e.g.
+when -fvisibility=hidden is not used).
+
+Note that on x86_64 this is also relaxed and the produced code is like:
+
+    lea x(%rip), %rdx
+    mov (%rdx), %rax
+    lea 1(%rax), %ecx
+    mov %ecx, (%rdx)
+    ret
+
+Tested by running ld test suite, bootstrapping and regtesting GCC with
+the patched ld, and building and testing Glibc with the patched ld.  No
+regression is observed.
+
+Signed-off-by: Xi Ruoyao <xry111@xry111.site>
+---
+ bfd/elfnn-loongarch.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 20dd0640..6fd6a04d 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -3986,8 +3986,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  else
+ 	    continue;
+ 
+-	  if (h && bfd_link_executable (info)
+-	      && SYMBOL_REFERENCES_LOCAL (info, h))
++	  if (h && SYMBOL_REFERENCES_LOCAL (info, h))
+ 	    local_got = true;
+ 	  symtype = h->type;
+ 	}
+-- 
+2.33.0
+

@@ -1,0 +1,25 @@
+From 601f6c1fb4e3b4a0174d99ec5dd6d4d19f89013e Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Mon, 31 Jul 2023 17:09:48 +0800
+Subject: [PATCH 014/123] LoongArch: readelf -d RELASZ excludes .rela.plt size
+
+Before, readelf -d RELASZ is the sum of .rela.dyn size and .rela.plt size.
+To consistent with LoongArch lld, RELASZ chang to only the size of .rela.dyn.
+---
+ bfd/elfnn-loongarch.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 2fe4924b..7dbe31eb 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -4672,4 +4672,6 @@ elf_loongarch64_hash_symbol (struct elf_link_hash_entry *h)
+ #define elf_backend_hash_symbol elf_loongarch64_hash_symbol
+ #define bfd_elfNN_bfd_relax_section loongarch_elf_relax_section
+ 
++#define elf_backend_dtrel_excludes_plt 1
++
+ #include "elfNN-target.h"
+-- 
+2.33.0
+

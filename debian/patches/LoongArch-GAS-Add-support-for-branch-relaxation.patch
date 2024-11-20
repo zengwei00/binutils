@@ -1,0 +1,529 @@
+From f9249a44e8e12e90cf5a49729107f69661ed07ec Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Sun, 24 Sep 2023 14:53:28 +0800
+Subject: [PATCH 013/123] LoongArch/GAS: Add support for branch relaxation
+
+For the instructions of R_LARCH_B16/B21, if the immediate overflow,
+add a B instruction and R_LARCH_B26 relocation.
+
+For example:
+
+.L1
+  ...
+  blt $t0, $t1, .L1
+    R_LARCH_B16
+
+change to:
+
+.L1
+  ...
+  bge $t0, $t1, .L2
+  b .L1
+    R_LARCH_B26
+.L2
+---
+ gas/config/tc-loongarch.c                     | 236 +++++++++++++++---
+ .../gas/loongarch/la_branch_relax_1.d         |  64 +++++
+ .../gas/loongarch/la_branch_relax_1.s         |  33 +++
+ .../gas/loongarch/la_branch_relax_2.d         |  40 +++
+ .../gas/loongarch/la_branch_relax_2.s         |  23 ++
+ include/opcode/loongarch.h                    |  12 +
+ 6 files changed, 367 insertions(+), 41 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/la_branch_relax_1.d
+ create mode 100644 gas/testsuite/gas/loongarch/la_branch_relax_1.s
+ create mode 100644 gas/testsuite/gas/loongarch/la_branch_relax_2.d
+ create mode 100644 gas/testsuite/gas/loongarch/la_branch_relax_2.s
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 4c48382c..059a1711 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -106,6 +106,16 @@ const char *md_shortopts = "O::g::G:";
+ 
+ static const char default_arch[] = DEFAULT_ARCH;
+ 
++/* The lowest 4-bit is the bytes of instructions.  */
++#define RELAX_BRANCH_16 0xc0000014
++#define RELAX_BRANCH_21 0xc0000024
++#define RELAX_BRANCH_26 0xc0000048
++
++#define RELAX_BRANCH(x) \
++  (((x) & 0xf0000000) == 0xc0000000)
++#define RELAX_BRANCH_ENCODE(x) \
++  (BFD_RELOC_LARCH_B16 == (x) ? RELAX_BRANCH_16 : RELAX_BRANCH_21)
++
+ enum options
+ {
+   OPTION_IGNORE = OPTION_MD_BASE,
+@@ -955,11 +965,22 @@ append_fixed_insn (struct loongarch_cl_insn *insn)
+   move_insn (insn, frag_now, f - frag_now->fr_literal);
+ }
+ 
++/* Add instructions based on the worst-case scenario firstly.  */
++static void
++append_relaxed_branch_insn (struct loongarch_cl_insn *insn, int max_chars,
++	    int var, relax_substateT subtype, symbolS *symbol, offsetT offset)
++{
++  frag_grow (max_chars);
++  move_insn (insn, frag_now, frag_more (0) - frag_now->fr_literal);
++  frag_var (rs_machine_dependent, max_chars, var,
++	    subtype, symbol, offset, NULL);
++}
++
+ static void
+ append_fixp_and_insn (struct loongarch_cl_insn *ip)
+ {
+   reloc_howto_type *howto;
+-  bfd_reloc_code_real_type reloc_type;
++  bfd_reloc_code_real_type r_type;
+   struct reloc_info *reloc_info = ip->reloc_info;
+   size_t i;
+ 
+@@ -967,14 +988,40 @@ append_fixp_and_insn (struct loongarch_cl_insn *ip)
+ 
+   for (i = 0; i < ip->reloc_num; i++)
+     {
+-      reloc_type = reloc_info[i].type;
+-      howto = bfd_reloc_type_lookup (stdoutput, reloc_type);
+-      if (howto == NULL)
+-	as_fatal (_("no HOWTO loong relocation number %d"), reloc_type);
+-
+-      ip->fixp[i] =
+-	fix_new_exp (ip->frag, ip->where, bfd_get_reloc_size (howto),
+-		     &reloc_info[i].value, FALSE, reloc_type);
++      r_type = reloc_info[i].type;
++
++      if (r_type != BFD_RELOC_UNUSED)
++	{
++
++	  gas_assert (&(reloc_info[i].value));
++	  if (BFD_RELOC_LARCH_B16 == r_type || BFD_RELOC_LARCH_B21 == r_type)
++	    {
++	      int min_bytes = 4; /* One branch instruction.  */
++	      unsigned max_bytes = 8; /* Branch and jump instructions.  */
++
++	      if (now_seg == absolute_section)
++		{
++		  as_bad (_("relaxable branches not supported in absolute section"));
++		  return;
++		}
++
++	      append_relaxed_branch_insn (ip, max_bytes, min_bytes,
++					  RELAX_BRANCH_ENCODE (r_type),
++					  reloc_info[i].value.X_add_symbol,
++					  reloc_info[i].value.X_add_number);
++	      return;
++	    }
++	  else
++	    {
++	      howto = bfd_reloc_type_lookup (stdoutput, r_type);
++	      if (howto == NULL)
++		as_fatal (_("no HOWTO loong relocation number %d"), r_type);
++
++	      ip->fixp[i] = fix_new_exp (ip->frag, ip->where,
++					 bfd_get_reloc_size (howto),
++					 &reloc_info[i].value, FALSE, r_type);
++	    }
++	}
+     }
+ 
+   if (ip->insn_length < ip->relax_max_length)
+@@ -1489,14 +1536,6 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+     }
+ }
+ 
+-int
+-loongarch_relax_frag (asection *sec ATTRIBUTE_UNUSED,
+-		      fragS *fragp ATTRIBUTE_UNUSED,
+-		      long stretch ATTRIBUTE_UNUSED)
+-{
+-  return 0;
+-}
+-
+ int
+ md_estimate_size_before_relax (fragS *fragp ATTRIBUTE_UNUSED,
+ 			       asection *segtype ATTRIBUTE_UNUSED)
+@@ -1528,30 +1567,6 @@ tc_gen_reloc (asection *section ATTRIBUTE_UNUSED, fixS *fixp)
+   return reloc;
+ }
+ 
+-/* Convert a machine dependent frag.  */
+-void
+-md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED, segT asec ATTRIBUTE_UNUSED,
+-		 fragS *fragp)
+-{
+-  expressionS exp;
+-  exp.X_op = O_symbol;
+-  exp.X_add_symbol = fragp->fr_symbol;
+-  exp.X_add_number = fragp->fr_offset;
+-  bfd_byte *buf = (bfd_byte *)fragp->fr_literal + fragp->fr_fix;
+-
+-  fixS *fixp = fix_new_exp (fragp, buf - (bfd_byte *)fragp->fr_literal,
+-				4, &exp, false, fragp->fr_subtype);
+-  buf += 4;
+-
+-  fixp->fx_file = fragp->fr_file;
+-  fixp->fx_line = fragp->fr_line;
+-  fragp->fr_fix += fragp->fr_var;
+-
+-  gas_assert (fragp->fr_next == NULL
+-	      || (fragp->fr_next->fr_address - fragp->fr_address
+-		  == fragp->fr_fix));
+-}
+-
+ /* Standard calling conventions leave the CFA at SP on entry.  */
+ void
+ loongarch_cfi_frame_initial_instructions (void)
+@@ -1777,3 +1792,142 @@ loongarch_elf_final_processing (void)
+ {
+   elf_elfheader (stdoutput)->e_flags = LARCH_opts.ase_abi;
+ }
++
++/* Compute the length of a branch sequence, and adjust the stored length
++   accordingly.  If FRAGP is NULL, the worst-case length is returned.  */
++static unsigned
++loongarch_relaxed_branch_length (fragS *fragp, asection *sec, int update)
++{
++  int length = 4;
++
++  if (!fragp)
++    return 8;
++
++  if (fragp->fr_symbol != NULL
++      && S_IS_DEFINED (fragp->fr_symbol)
++      && !S_IS_WEAK (fragp->fr_symbol)
++      && sec == S_GET_SEGMENT (fragp->fr_symbol))
++    {
++      offsetT val = S_GET_VALUE (fragp->fr_symbol) + fragp->fr_offset;
++
++      val -= fragp->fr_address + fragp->fr_fix;
++
++      if (RELAX_BRANCH_16 == fragp->fr_subtype
++	  && OUT_OF_RANGE (val, 16, 2))
++	{
++	  length = 8;
++	  if (update)
++	    fragp->fr_subtype = RELAX_BRANCH_26;
++	}
++
++      if (RELAX_BRANCH_21 == fragp->fr_subtype
++	  && OUT_OF_RANGE (val, 21, 2))
++	{
++	  length = 8;
++	  if (update)
++	    fragp->fr_subtype = RELAX_BRANCH_26;
++	}
++
++      if (RELAX_BRANCH_26 == fragp->fr_subtype)
++	length = 8;
++    }
++
++  return length;
++}
++
++int
++loongarch_relax_frag (asection *sec ATTRIBUTE_UNUSED,
++		      fragS *fragp ATTRIBUTE_UNUSED,
++		      long stretch ATTRIBUTE_UNUSED)
++{
++  if (RELAX_BRANCH (fragp->fr_subtype))
++    {
++      offsetT old_var = fragp->fr_var;
++      fragp->fr_var = loongarch_relaxed_branch_length (fragp, sec, true);
++      return fragp->fr_var - old_var;
++    }
++  return 0;
++}
++
++/* Expand far branches to multi-instruction sequences.
++   Branch instructions:
++   beq, bne, blt, bgt, bltz, bgtz, ble, bge, blez, bgez
++   bltu, bgtu, bleu, bgeu
++   beqz, bnez, bceqz, bcnez.  */
++
++static void
++loongarch_convert_frag_branch (fragS *fragp)
++{
++  bfd_byte *buf;
++  expressionS exp;
++  fixS *fixp;
++  insn_t insn;
++
++  buf = (bfd_byte *)fragp->fr_literal + fragp->fr_fix;
++
++  exp.X_op = O_symbol;
++  exp.X_add_symbol = fragp->fr_symbol;
++  exp.X_add_number = fragp->fr_offset;
++
++  gas_assert ((fragp->fr_subtype & 0xf) == fragp->fr_var);
++
++  /* blt $t0, $t1, .L1
++     nop
++     change to:
++     bge $t0, $t1, .L2
++     b .L1
++   .L2:
++     nop  */
++  switch (fragp->fr_subtype)
++    {
++    case RELAX_BRANCH_26:
++      insn = bfd_getl32 (buf);
++      /* Invert the branch condition.  */
++      if (LARCH_FLOAT_BRANCH == (insn & LARCH_BRANCH_OPCODE_MASK))
++	insn ^= LARCH_FLOAT_BRANCH_INVERT_BIT;
++      else
++	insn ^= LARCH_BRANCH_INVERT_BIT;
++      insn |= ENCODE_BRANCH16_IMM (8);  /* Set target to PC + 8.  */
++      bfd_putl32 (insn, buf);
++      buf += 4;
++
++      /* Add the B instruction and jump to the original target.  */
++      bfd_putl32 (LARCH_B, buf);
++      fixp = fix_new_exp (fragp, buf - (bfd_byte *)fragp->fr_literal,
++			  4, &exp, false, BFD_RELOC_LARCH_B26);
++      buf += 4;
++      break;
++    case RELAX_BRANCH_21:
++      fixp = fix_new_exp (fragp, buf - (bfd_byte *)fragp->fr_literal,
++			  4, &exp, false, BFD_RELOC_LARCH_B21);
++      buf += 4;
++      break;
++    case RELAX_BRANCH_16:
++      fixp = fix_new_exp (fragp, buf - (bfd_byte *)fragp->fr_literal,
++			  4, &exp, false, BFD_RELOC_LARCH_B16);
++      buf += 4;
++      break;
++
++    default:
++      abort();
++    }
++
++  fixp->fx_file = fragp->fr_file;
++  fixp->fx_line = fragp->fr_line;
++
++  gas_assert (buf == (bfd_byte *)fragp->fr_literal
++	      + fragp->fr_fix + fragp->fr_var);
++
++  fragp->fr_fix += fragp->fr_var;
++}
++
++/* Relax a machine dependent frag.  This returns the amount by which
++   the current size of the frag should change.  */
++
++void
++md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED, segT asec ATTRIBUTE_UNUSED,
++		 fragS *fragp)
++{
++  gas_assert (RELAX_BRANCH (fragp->fr_subtype));
++  loongarch_convert_frag_branch (fragp);
++}
+diff --git a/gas/testsuite/gas/loongarch/la_branch_relax_1.d b/gas/testsuite/gas/loongarch/la_branch_relax_1.d
+new file mode 100644
+index 00000000..7984b6df
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/la_branch_relax_1.d
+@@ -0,0 +1,64 @@
++#as:
++#objdump: -dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++0* <.L1>:
++[ 	]+...
++[ 	]+48d158:[ 	]+5c00098d[ 	]+bne[ 	]+\$t0, \$t1, 8[ 	]+# 48d160 <.L1\+0x48d160>
++[ 	]+48d15c:[ 	]+532ea7ed[ 	]+b[ 	]+-4772188[ 	]+# 0 <.L1>
++[ 	]+48d15c: R_LARCH_B26[ 	]+.L1
++[ 	]+48d160:[ 	]+5800098d[ 	]+beq[ 	]+\$t0, \$t1, 8[ 	]+# 48d168 <.L1\+0x48d168>
++[ 	]+48d164:[ 	]+532e9fed[ 	]+b[ 	]+-4772196[ 	]+# 0 <.L1>
++[ 	]+48d164: R_LARCH_B26[ 	]+.L1
++[ 	]+48d168:[ 	]+6400098d[ 	]+bge[ 	]+\$t0, \$t1, 8[ 	]+# 48d170 <.L1\+0x48d170>
++[ 	]+48d16c:[ 	]+532e97ed[ 	]+b[ 	]+-4772204[ 	]+# 0 <.L1>
++[ 	]+48d16c: R_LARCH_B26[ 	]+.L1
++[ 	]+48d170:[ 	]+640009ac[ 	]+bge[ 	]+\$t1, \$t0, 8[ 	]+# 48d178 <.L1\+0x48d178>
++[ 	]+48d174:[ 	]+532e8fed[ 	]+b[ 	]+-4772212[ 	]+# 0 <.L1>
++[ 	]+48d174: R_LARCH_B26[ 	]+.L1
++[ 	]+48d178:[ 	]+64000980[ 	]+bgez[ 	]+\$t0, 8[ 	]+# 48d180 <.L1\+0x48d180>
++[ 	]+48d17c:[ 	]+532e87ed[ 	]+b[ 	]+-4772220[ 	]+# 0 <.L1>
++[ 	]+48d17c: R_LARCH_B26[ 	]+.L1
++[ 	]+48d180:[ 	]+6400080c[ 	]+blez[ 	]+\$t0, 8[ 	]+# 48d188 <.L1\+0x48d188>
++[ 	]+48d184:[ 	]+532e7fed[ 	]+b[ 	]+-4772228[ 	]+# 0 <.L1>
++[ 	]+48d184: R_LARCH_B26[ 	]+.L1
++[ 	]+48d188:[ 	]+600009ac[ 	]+blt[ 	]+\$t1, \$t0, 8[ 	]+# 48d190 <.L1\+0x48d190>
++[ 	]+48d18c:[ 	]+532e77ed[ 	]+b[ 	]+-4772236[ 	]+# 0 <.L1>
++[ 	]+48d18c: R_LARCH_B26[ 	]+.L1
++[ 	]+48d190:[ 	]+6000098d[ 	]+blt[ 	]+\$t0, \$t1, 8[ 	]+# 48d198 <.L1\+0x48d198>
++[ 	]+48d194:[ 	]+532e6fed[ 	]+b[ 	]+-4772244[ 	]+# 0 <.L1>
++[ 	]+48d194: R_LARCH_B26[ 	]+.L1
++[ 	]+48d198:[ 	]+6000080c[ 	]+bgtz[ 	]+\$t0, 8[ 	]+# 48d1a0 <.L1\+0x48d1a0>
++[ 	]+48d19c:[ 	]+532e67ed[ 	]+b[ 	]+-4772252[ 	]+# 0 <.L1>
++[ 	]+48d19c: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1a0:[ 	]+60000980[ 	]+bltz[ 	]+\$t0, 8[ 	]+# 48d1a8 <.L1\+0x48d1a8>
++[ 	]+48d1a4:[ 	]+532e5fed[ 	]+b[ 	]+-4772260[ 	]+# 0 <.L1>
++[ 	]+48d1a4: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1a8:[ 	]+6c00098d[ 	]+bgeu[ 	]+\$t0, \$t1, 8[ 	]+# 48d1b0 <.L1\+0x48d1b0>
++[ 	]+48d1ac:[ 	]+532e57ed[ 	]+b[ 	]+-4772268[ 	]+# 0 <.L1>
++[ 	]+48d1ac: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1b0:[ 	]+6c0009ac[ 	]+bgeu[ 	]+\$t1, \$t0, 8[ 	]+# 48d1b8 <.L1\+0x48d1b8>
++[ 	]+48d1b4:[ 	]+532e4fed[ 	]+b[ 	]+-4772276[ 	]+# 0 <.L1>
++[ 	]+48d1b4: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1b8:[ 	]+680009ac[ 	]+bltu[ 	]+\$t1, \$t0, 8[ 	]+# 48d1c0 <.L1\+0x48d1c0>
++[ 	]+48d1bc:[ 	]+532e47ed[ 	]+b[ 	]+-4772284[ 	]+# 0 <.L1>
++[ 	]+48d1bc: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1c0:[ 	]+6800098d[ 	]+bltu[ 	]+\$t0, \$t1, 8[ 	]+# 48d1c8 <.L1\+0x48d1c8>
++[ 	]+48d1c4:[ 	]+532e3fed[ 	]+b[ 	]+-4772292[ 	]+# 0 <.L1>
++[ 	]+48d1c4: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1c8:[ 	]+44000980[ 	]+bnez[ 	]+\$t0, 8[ 	]+# 48d1d0 <.L1\+0x48d1d0>
++[ 	]+48d1cc:[ 	]+532e37ed[ 	]+b[ 	]+-4772300[ 	]+# 0 <.L1>
++[ 	]+48d1cc: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1d0:[ 	]+40000980[ 	]+beqz[ 	]+\$t0, 8[ 	]+# 48d1d8 <.L1\+0x48d1d8>
++[ 	]+48d1d4:[ 	]+532e2fed[ 	]+b[ 	]+-4772308[ 	]+# 0 <.L1>
++[ 	]+48d1d4: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1d8:[ 	]+48000900[ 	]+bcnez[ 	]+\$fcc0, 8[ 	]+# 48d1e0 <.L1\+0x48d1e0>
++[ 	]+48d1dc:[ 	]+532e27ed[ 	]+b[ 	]+-4772316[ 	]+# 0 <.L1>
++[ 	]+48d1dc: R_LARCH_B26[ 	]+.L1
++[ 	]+48d1e0:[ 	]+48000800[ 	]+bceqz[ 	]+\$fcc0, 8[ 	]+# 48d1e8 <.L1\+0x48d1e8>
++[ 	]+48d1e4:[ 	]+532e1fed[ 	]+b[ 	]+-4772324[ 	]+# 0 <.L1>
++[ 	]+48d1e4: R_LARCH_B26[ 	]+.L1
+diff --git a/gas/testsuite/gas/loongarch/la_branch_relax_1.s b/gas/testsuite/gas/loongarch/la_branch_relax_1.s
+new file mode 100644
+index 00000000..53288f25
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/la_branch_relax_1.s
+@@ -0,0 +1,33 @@
++# Instruction and Relocation generating tests
++
++.L1:
++  .fill 0x123456, 4, 0x0
++
++# R_LARCH_B16
++  beq $r12, $r13, .L1
++  bne $r12, $r13, .L1
++
++  blt $r12, $r13, .L1
++  bgt $r12, $r13, .L1
++
++  bltz $r12, .L1
++  bgtz $r12, .L1
++
++  ble $r12, $r13, .L1
++  bge $r12, $r13, .L1
++
++  blez $r12, .L1
++  bgez $r12, .L1
++
++  bltu $r12, $r13, .L1
++  bgtu $r12, $r13, .L1
++
++  bleu $r12, $r13, .L1
++  bgeu $r12, $r13, .L1
++
++# R_LARCH_B21
++  beqz $r12, .L1
++  bnez $r12, .L1
++
++  bceqz $fcc0, .L1
++  bcnez $fcc0, .L1
+diff --git a/gas/testsuite/gas/loongarch/la_branch_relax_2.d b/gas/testsuite/gas/loongarch/la_branch_relax_2.d
+new file mode 100644
+index 00000000..4a3c6384
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/la_branch_relax_2.d
+@@ -0,0 +1,40 @@
++#as:
++#objdump: -dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++0* <.L1>:
++[ 	]+...
++[ 	]+20000:[ 	]+5a00018d[ 	]+beq[ 	]+\$t0, \$t1, -131072[ 	]+# 0 <.L1>
++[ 	]+20000: R_LARCH_B16[ 	]+.L1
++[ 	]+20004:[ 	]+5c00098d[ 	]+bne[ 	]+\$t0, \$t1, 8[ 	]+# 2000c <.L1\+0x2000c>
++[ 	]+20008:[ 	]+51fffbff[ 	]+b[ 	]+-131080[ 	]+# 0 <.L1>
++[ 	]+20008: R_LARCH_B26[ 	]+.L1
++[ 	]+2000c:[ 	]+5c00098d[ 	]+bne[ 	]+\$t0, \$t1, 8[ 	]+# 20014 <.L1\+0x20014>
++[ 	]+20010:[ 	]+52000000[ 	]+b[ 	]+131072[ 	]+# 40010 <.L2>
++[ 	]+20010: R_LARCH_B26[ 	]+.L2
++[ 	]+20014:[ 	]+59fffd8d[ 	]+beq[ 	]+\$t0, \$t1, 131068[ 	]+# 40010 <.L2>
++[ 	]+20014: R_LARCH_B16[ 	]+.L2
++[ 	]+...
++0*40010 <.L2>:
++[ 	]+...
++[ 	]+440010:[ 	]+40000190[ 	]+beqz[ 	]+\$t0, -4194304[ 	]+# 40010 <.L2>
++[ 	]+440010: R_LARCH_B21[ 	]+.L2
++[ 	]+440014:[ 	]+44000980[ 	]+bnez[ 	]+\$t0, 8[ 	]+# 44001c <.L2\+0x40000c>
++[ 	]+440018:[ 	]+53fffbef[ 	]+b[ 	]+-4194312[ 	]+# 40010 <.L2>
++[ 	]+440018: R_LARCH_B26[ 	]+.L2
++[ 	]+44001c:[ 	]+44000980[ 	]+bnez[ 	]+\$t0, 8[ 	]+# 440024 <.L2\+0x400014>
++[ 	]+440020:[ 	]+50000010[ 	]+b[ 	]+4194304[ 	]+# 840020 <.L3>
++[ 	]+440020: R_LARCH_B26[ 	]+.L3
++[ 	]+440024:[ 	]+43fffd8f[ 	]+beqz[ 	]+\$t0, 4194300[ 	]+# 840020 <.L3>
++[ 	]+440024: R_LARCH_B21[ 	]+.L3
++[ 	]+...
++0*840020 <.L3>:
++[ 	]+840020:[ 	]+5800018d[ 	]+beq[ 	]+\$t0, \$t1, 0[ 	]+# 840020 <.L3>
++[ 	]+840020: R_LARCH_B16[ 	]+.L4
++0*840024 <.L5>:
++[ 	]+840024:[ 	]+40000180[ 	]+beqz[ 	]+\$t0, 0[ 	]+# 840024 <.L5>
++[ 	]+840024: R_LARCH_B21[ 	]+.L5
+diff --git a/gas/testsuite/gas/loongarch/la_branch_relax_2.s b/gas/testsuite/gas/loongarch/la_branch_relax_2.s
+new file mode 100644
+index 00000000..3e6c5534
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/la_branch_relax_2.s
+@@ -0,0 +1,23 @@
++# Immediate boundary value tests
++
++.L1:
++  .fill 0x8000, 4, 0
++  beq $r12, $r13, .L1 # min imm -0x20000
++  beq $r12, $r13, .L1 # out of range
++  beq $r12, $r13, .L2 # out of range
++  beq $r12, $r13, .L2 # max imm 0x1fffc
++  .fill 0x7ffe, 4, 0
++.L2:
++  .fill 0x100000, 4, 0
++  beqz $r12, .L2 # min imm -0x400000
++  beqz $r12, .L2 # out of range
++  beqz $r12, .L3 # out of range
++  beqz $r12, .L3 # max imm 0x3ffffc
++  .fill 0xffffe, 4, 0
++.L3:
++
++# 0 imm
++.L4:
++  beq $r12, $r13, .L4
++.L5:
++  beqz $r12, .L5
+diff --git a/include/opcode/loongarch.h b/include/opcode/loongarch.h
+index 2ed4082c..f358ff42 100644
+--- a/include/opcode/loongarch.h
++++ b/include/opcode/loongarch.h
+@@ -29,6 +29,18 @@ extern "C"
+ #endif
+ 
+   #define LARCH_NOP 0x03400000
++  #define LARCH_B 0x50000000
++  /* BCEQZ/BCNEZ.  */
++  #define LARCH_FLOAT_BRANCH 0x48000000
++  #define LARCH_BRANCH_OPCODE_MASK 0xfc000000
++  #define LARCH_BRANCH_INVERT_BIT 0x04000000
++  #define LARCH_FLOAT_BRANCH_INVERT_BIT 0x00000100
++
++  #define ENCODE_BRANCH16_IMM(x) (((x) >> 2) << 10)
++
++  #define OUT_OF_RANGE(value, bits, align)	\
++    ((value) < (-(1 << ((bits) - 1) << align)) 	\
++      || (value) > ((((1 << ((bits) - 1)) - 1) << align)))
+ 
+   typedef uint32_t insn_t;
+ 
+-- 
+2.33.0
+

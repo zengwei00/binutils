@@ -1,0 +1,25 @@
+From 6a455ac82af2d8f5989f71df38f6e779ae202a48 Mon Sep 17 00:00:00 2001
+From: Nick Clifton <nickc@redhat.com>
+Date: Mon, 29 Apr 2024 09:02:43 +0100
+Subject: [PATCH 084/123] Fix building Loongarch BFD with a 32-bit compiler
+
+---
+ bfd/elfnn-loongarch.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index ee708c7f..47fd08cd 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -782,7 +782,7 @@ bad_static_reloc (bfd *abfd, const Elf_Internal_Rela *rel, asection *sec,
+   (*_bfd_error_handler)
+    (_("%pB:(%pA+%#lx): relocation %s against `%s` can not be used when making "
+       "a shared object; recompile with -fPIC"),
+-    abfd, sec, rel->r_offset, r ? r->name : _("<unknown>"), name);
++    abfd, sec, (long) rel->r_offset, r ? r->name : _("<unknown>"), name);
+   bfd_set_error (bfd_error_bad_value);
+   return false;
+ }
+-- 
+2.33.0
+

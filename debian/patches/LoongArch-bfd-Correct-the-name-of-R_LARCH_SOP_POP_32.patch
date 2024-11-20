@@ -1,0 +1,26 @@
+From af43295f92b7f2c85f9613481eb92efcd348f5be Mon Sep 17 00:00:00 2001
+From: Jinyang He <hejinyang@loongson.cn>
+Date: Tue, 5 Sep 2023 10:31:27 +0800
+Subject: [PATCH 057/123] LoongArch: bfd: Correct the name of
+ R_LARCH_SOP_POP_32_U in howto_table
+
+---
+ bfd/elfxx-loongarch.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index 2c40fb02..fe38f369 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -548,7 +548,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 0,					/* bitpos.  */
+ 	 complain_overflow_unsigned,		/* complain_on_overflow.  */
+ 	 bfd_elf_generic_reloc,			/* special_function.  */
+-	 "R_LARCH_SOP_POP_32_S_U",		/* name.  */
++	 "R_LARCH_SOP_POP_32_U",		/* name.  */
+ 	 false,					/* partial_inplace.  */
+ 	 0xffffffff00000000,			/* src_mask */
+ 	 0x00000000ffffffff,			/* dst_mask */
+-- 
+2.33.0
+

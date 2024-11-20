@@ -1,0 +1,25 @@
+From a06390be2ae099645373a826da3fd0f9d6c3e48a Mon Sep 17 00:00:00 2001
+From: YunQiang Su <yunqiang.su@cipunited.com>
+Date: Fri, 24 Nov 2023 14:35:12 +0800
+Subject: [PATCH 018/123] MIPS/GAS: Add -march=loongson2f to loongson-2f-3 test
+
+On MIPSr6, the encoding of JR instruction has been chaned.
+This patch can fix these failures for r6 default triples:
+	ST Microelectronics Loongson-2F workarounds of Jump Instruction issue
+---
+ gas/testsuite/gas/mips/loongson-2f-3.d | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gas/testsuite/gas/mips/loongson-2f-3.d b/gas/testsuite/gas/mips/loongson-2f-3.d
+index f3ac2c97..c31d3abf 100644
+--- a/gas/testsuite/gas/mips/loongson-2f-3.d
++++ b/gas/testsuite/gas/mips/loongson-2f-3.d
+@@ -1,4 +1,4 @@
+-#as: -mfix-loongson2f-jump
++#as: -march=loongson2f -mfix-loongson2f-jump
+ #objdump: -M reg-names=numeric -dr
+ #name: ST Microelectronics Loongson-2F workarounds of Jump Instruction issue
+ 
+-- 
+2.33.0
+

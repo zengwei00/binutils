@@ -1,3 +1,9 @@
+binutils (2.41-6deepin5) unstable; urgency=medium
+
+  * Backport patches from upstream to LoongArch.
+
+ -- Xin Wang <wangxin03@loongson.cn>  Wed, 27 Nov 2024 17:22:23 +0800
+
 binutils (2.41-6deepin4) unstable; urgency=medium
 
   * Enable loong64 cross target for arm64.

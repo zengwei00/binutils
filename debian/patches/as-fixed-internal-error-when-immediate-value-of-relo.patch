@@ -1,0 +1,140 @@
+From 690ba386f3729db0f466f607eb0e53c1ed0c431f Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 11 Oct 2023 10:20:45 +0800
+Subject: [PATCH 016/123] as: fixed internal error when immediate value of
+ relocation overflow.
+
+The as and ld use _bfd_error_handler to output error messages when
+checking relocation alignment and relocation overflow. However, the
+abfd value passed by as to the function is NULL, resulting in an
+internal error. The ld passes a non-null value to the function,
+so it can output an error message normally.
+---
+ bfd/elfxx-loongarch.c                      | 22 ++++++++++++++++------
+ gas/config/tc-loongarch.c                  |  2 +-
+ gas/testsuite/gas/loongarch/imm_overflow.d |  3 +++
+ gas/testsuite/gas/loongarch/imm_overflow.l |  2 ++
+ gas/testsuite/gas/loongarch/imm_overflow.s |  4 ++++
+ gas/testsuite/gas/loongarch/imm_unalign.d  |  3 +++
+ gas/testsuite/gas/loongarch/imm_unalign.l  |  2 ++
+ gas/testsuite/gas/loongarch/imm_unalign.s  |  6 ++++++
+ 8 files changed, 37 insertions(+), 7 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/imm_overflow.d
+ create mode 100644 gas/testsuite/gas/loongarch/imm_overflow.l
+ create mode 100644 gas/testsuite/gas/loongarch/imm_overflow.s
+ create mode 100644 gas/testsuite/gas/loongarch/imm_unalign.d
+ create mode 100644 gas/testsuite/gas/loongarch/imm_unalign.l
+ create mode 100644 gas/testsuite/gas/loongarch/imm_unalign.s
+
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index fd9507ce..7f298c08 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -1679,9 +1679,14 @@ reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
+   if (howto->rightshift
+       && (val & ((((bfd_signed_vma) 1) << howto->rightshift) - 1)))
+     {
+-      (*_bfd_error_handler) (_("%pB: relocation %s right shift %d error 0x%lx"),
+-			     abfd, howto->name, howto->rightshift, (long) val);
+-      bfd_set_error (bfd_error_bad_value);
++      /* The as passes NULL casued internal error, so it can not use _bfd_error_handler
++	 output details, ld is not affected.  */
++      if (abfd != NULL)
++	{
++	  (*_bfd_error_handler) (_("%pB: relocation %s right shift %d error 0x%lx"),
++				 abfd, howto->name, howto->rightshift, (long) val);
++	  bfd_set_error (bfd_error_bad_value);
++	}
+       return false;
+     }
+ 
+@@ -1693,9 +1698,14 @@ reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
+      high part: from sign bit to highest bit.  */
+   if ((val & ~mask) && ((val & ~mask) != ~mask))
+     {
+-      (*_bfd_error_handler) (_("%pB: relocation %s overflow 0x%lx"),
+-			     abfd, howto->name, (long) val);
+-      bfd_set_error (bfd_error_bad_value);
++      /* The as passes NULL casued internal error, so it can not use _bfd_error_handler
++	 output details, ld is not affected.  */
++      if (abfd != NULL)
++	{
++	  (*_bfd_error_handler) (_("%pB: relocation %s overflow 0x%lx"),
++				 abfd, howto->name, (long) val);
++	  bfd_set_error (bfd_error_bad_value);
++	}
+       return false;
+     }
+ 
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 059a1711..49c70bf1 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -1236,7 +1236,7 @@ static void fix_reloc_insn (fixS *fixP, bfd_vma reloc_val, char *buf)
+   insn = bfd_getl32 (buf);
+ 
+   if (!loongarch_adjust_reloc_bitsfield (NULL, howto, &reloc_val))
+-    as_warn_where (fixP->fx_file, fixP->fx_line, "Reloc overflow");
++    as_bad_where (fixP->fx_file, fixP->fx_line, "Reloc overflow");
+ 
+   insn = (insn & (insn_t)howto->src_mask)
+     | ((insn & (~(insn_t)howto->dst_mask)) | reloc_val);
+diff --git a/gas/testsuite/gas/loongarch/imm_overflow.d b/gas/testsuite/gas/loongarch/imm_overflow.d
+new file mode 100644
+index 00000000..50a65b7c
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/imm_overflow.d
+@@ -0,0 +1,3 @@
++#as:
++#source: imm_overflow.s
++#error_output: imm_overflow.l
+diff --git a/gas/testsuite/gas/loongarch/imm_overflow.l b/gas/testsuite/gas/loongarch/imm_overflow.l
+new file mode 100644
+index 00000000..449b3c2a
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/imm_overflow.l
+@@ -0,0 +1,2 @@
++.*Assembler messages:
++.*Error: Reloc overflow
+diff --git a/gas/testsuite/gas/loongarch/imm_overflow.s b/gas/testsuite/gas/loongarch/imm_overflow.s
+new file mode 100644
+index 00000000..9aac396a
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/imm_overflow.s
+@@ -0,0 +1,4 @@
++.L1:
++  nop
++  .fill 0x3ffffff, 4, 0
++  b .L1
+diff --git a/gas/testsuite/gas/loongarch/imm_unalign.d b/gas/testsuite/gas/loongarch/imm_unalign.d
+new file mode 100644
+index 00000000..1deb5025
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/imm_unalign.d
+@@ -0,0 +1,3 @@
++#as:
++#source: imm_unalign.s
++#error_output: imm_unalign.l
+diff --git a/gas/testsuite/gas/loongarch/imm_unalign.l b/gas/testsuite/gas/loongarch/imm_unalign.l
+new file mode 100644
+index 00000000..449b3c2a
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/imm_unalign.l
+@@ -0,0 +1,2 @@
++.*Assembler messages:
++.*Error: Reloc overflow
+diff --git a/gas/testsuite/gas/loongarch/imm_unalign.s b/gas/testsuite/gas/loongarch/imm_unalign.s
+new file mode 100644
+index 00000000..a853bdcb
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/imm_unalign.s
+@@ -0,0 +1,6 @@
++.L1:
++  .2byte 0x12
++
++.L2:
++  .fill 1, 4, 0
++  b .L1
+-- 
+2.33.0
+

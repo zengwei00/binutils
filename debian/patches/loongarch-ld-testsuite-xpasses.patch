@@ -1,0 +1,112 @@
+From 33403fb9c012c0eecf216ca9e9398a4ed8de81df Mon Sep 17 00:00:00 2001
+From: Alan Modra <amodra@gmail.com>
+Date: Wed, 7 Aug 2024 07:56:33 +0930
+Subject: [PATCH 106/123] loongarch ld testsuite xpasses
+
+Some tests started passing with commit 3a83f0342e54.  However,
+supporting a changed ld output format is not so simple, and the change
+to the loongarch_elf_hash_table macro needs further changes to the
+rest of the code.  It is true that some uses of
+loongarch_elf_hash_table do not need to check the type of the hash
+table, but others like loongarch_elf_relax_section do need to check.
+bfd_relax_section is called in lang_size_sections using the input bfd,
+not the output bfd.  If the input bfd may be of different type to the
+output, then the hash table type must be checked before accessing
+elements of the hash table.  This patch corrects
+loongarch_elf_relax_section.  I haven't checked all the uses of the
+hash table throughout the loongarch backend.
+
+bfd/
+	* elfnn-loongarch.c (loongarch_elf_relax_section): Don't relax
+	unless the hash table is loongarch_elf_link_hash_table.
+	Move variable declarations.  Formatting.
+ld/
+	* testsuite/ld-elf/pr21884.d: Don't xfail loongarach.
+	* testsuite/ld-unique/pr21529.d: Likewise.
+---
+ bfd/elfnn-loongarch.c            | 18 ++++++++++--------
+ ld/testsuite/ld-elf/pr21884.d    |  2 +-
+ ld/testsuite/ld-unique/pr21529.d |  2 +-
+ 3 files changed, 12 insertions(+), 10 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index c2468443..adf16ddc 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -5246,16 +5246,15 @@ loongarch_get_max_alignment (asection *sec)
+ 
+ static bool
+ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+-			       struct bfd_link_info *info,
+-			       bool *again)
++			     struct bfd_link_info *info,
++			     bool *again)
+ {
+-  struct loongarch_elf_link_hash_table *htab = loongarch_elf_hash_table (info);
+-  struct bfd_elf_section_data *data = elf_section_data (sec);
+-  Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (abfd);
+-  Elf_Internal_Rela *relocs;
+   *again = false;
+-  bfd_vma max_alignment = 0;
++  if (!is_elf_hash_table (info->hash)
++      || elf_hash_table_id (elf_hash_table (info)) != LARCH_ELF_DATA)
++    return true;
+ 
++  struct loongarch_elf_link_hash_table *htab = loongarch_elf_hash_table (info);
+   if (bfd_link_relocatable (info)
+       || sec->sec_flg0
+       || (sec->flags & SEC_RELOC) == 0
+@@ -5267,6 +5266,8 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+       || *(htab->data_segment_phase) == 4)
+     return true;
+ 
++  struct bfd_elf_section_data *data = elf_section_data (sec);
++  Elf_Internal_Rela *relocs;
+   if (data->relocs)
+     relocs = data->relocs;
+   else if (!(relocs = _bfd_elf_link_read_relocs (abfd, sec, NULL, NULL,
+@@ -5277,6 +5278,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+       && !bfd_malloc_and_get_section (abfd, sec, &data->this_hdr.contents))
+     return true;
+ 
++  Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (abfd);
+   if (symtab_hdr->sh_info != 0
+       && !symtab_hdr->contents
+       && !(symtab_hdr->contents =
+@@ -5289,7 +5291,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 
+   /* Estimate the maximum alignment for all output sections once time
+      should be enough.  */
+-  max_alignment = htab->max_alignment;
++  bfd_vma max_alignment = htab->max_alignment;
+   if (max_alignment == (bfd_vma) -1)
+     {
+       max_alignment = loongarch_get_max_alignment (sec);
+diff --git a/ld/testsuite/ld-elf/pr21884.d b/ld/testsuite/ld-elf/pr21884.d
+index e289b419..3d44ccfe 100644
+--- a/ld/testsuite/ld-elf/pr21884.d
++++ b/ld/testsuite/ld-elf/pr21884.d
+@@ -3,7 +3,7 @@
+ #ld: -T pr21884.t
+ #objdump: -b binary -s
+ #xfail: aarch64*-*-* arm*-*-* avr-*-* ia64-*-* m68hc1*-*-* nds32*-*-*
+-#xfail: riscv*-*-* score-*-* v850-*-* loongarch*-*-*
++#xfail: riscv*-*-* score-*-* v850-*-*
+ # Skip targets which can't change output format to binary.
+ 
+ .*:     file format binary
+diff --git a/ld/testsuite/ld-unique/pr21529.d b/ld/testsuite/ld-unique/pr21529.d
+index 896f8722..fb637943 100644
+--- a/ld/testsuite/ld-unique/pr21529.d
++++ b/ld/testsuite/ld-unique/pr21529.d
+@@ -1,6 +1,6 @@
+ #ld: --oformat binary -T pr21529.ld -e main
+ #objdump: -s -b binary
+-#xfail: aarch64*-*-* arm*-*-* avr-*-* ia64-*-* m68hc1*-*-* nds32*-*-* riscv*-*-* score-*-* v850-*-* loongarch*-*-*
++#xfail: aarch64*-*-* arm*-*-* avr-*-* ia64-*-* m68hc1*-*-* nds32*-*-* riscv*-*-* score-*-* v850-*-*
+ # Skip targets which can't change output format to binary.
+ 
+ #pass
+-- 
+2.33.0
+

@@ -1,0 +1,273 @@
+From 9c12754717e9564ba5caa8220a87fa759f6e3f33 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Wed, 27 Dec 2023 11:12:30 +0800
+Subject: [PATCH 043/123] LoongArch: Fix relaxation overflow caused by section
+ alignment
+
+When deleting NOP instructions addend by .align at second pass, this may cause
+the PC decrease but the symbol address to remain unchanged due to section
+alignment.
+
+To solve this question, we subtract a maximux alignment of all sections like
+RISC-V.
+---
+ bfd/elfnn-loongarch.c                         | 79 +++++++++++++------
+ .../relax-section-align-overflow.s            | 25 ++++++
+ ld/testsuite/ld-loongarch-elf/relax.exp       | 25 ++++--
+ 3 files changed, 100 insertions(+), 29 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-section-align-overflow.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 3d858169..8b71e836 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -4188,8 +4188,9 @@ loongarch_relax_tls_le (bfd *abfd, asection *sec,
+ /* Relax pcalau12i,addi.d => pcaddi.  */
+ static bool
+ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+-		       Elf_Internal_Rela *rel_hi, bfd_vma symval,
+-		       struct bfd_link_info *info, bool *again)
++			    Elf_Internal_Rela *rel_hi, bfd_vma symval,
++			    struct bfd_link_info *info, bool *again,
++			    bfd_vma max_alignment)
+ {
+   bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
+   Elf_Internal_Rela *rel_lo = rel_hi + 2;
+@@ -4205,14 +4206,22 @@ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+   bfd_vma pc = sec_addr (sec) + rel_hi->r_offset;
+ 
+   /* If pc and symbol not in the same segment, add/sub segment alignment.
+-     FIXME: if there are multiple readonly segments?  */
++     FIXME: if there are multiple readonly segments? How to determine if
++     two sections are in the same segment.  */
+   if (!(sym_sec->flags & SEC_READONLY))
+     {
++      max_alignment = info->maxpagesize > max_alignment ? info->maxpagesize
++							  : max_alignment;
+       if (symval > pc)
+-	pc -= info->maxpagesize;
++	pc -= max_alignment;
+       else if (symval < pc)
+-	pc += info->maxpagesize;
++	pc += max_alignment;
+     }
++  else
++    if (symval > pc)
++      pc -= max_alignment;
++    else if (symval < pc)
++      pc += max_alignment;
+ 
+   const uint32_t addi_d = 0x02c00000;
+   const uint32_t pcaddi = 0x18000000;
+@@ -4352,8 +4361,9 @@ loongarch_relax_align (bfd *abfd, asection *sec,
+ /* Relax pcalau12i + addi.d of TLS LD/GD/DESC to pcaddi.  */
+ static bool
+ loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
+-		       Elf_Internal_Rela *rel_hi, bfd_vma symval,
+-		       struct bfd_link_info *info, bool *again)
++				Elf_Internal_Rela *rel_hi, bfd_vma symval,
++				struct bfd_link_info *info, bool *again,
++				bfd_vma max_alignment)
+ {
+   bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
+   Elf_Internal_Rela *rel_lo = rel_hi + 2;
+@@ -4372,11 +4382,18 @@ loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
+      FIXME: if there are multiple readonly segments?  */
+   if (!(sym_sec->flags & SEC_READONLY))
+     {
++      max_alignment = info->maxpagesize > max_alignment ? info->maxpagesize
++							  : max_alignment;
+       if (symval > pc)
+-	pc -= info->maxpagesize;
++	pc -= max_alignment;
+       else if (symval < pc)
+-	pc += info->maxpagesize;
++	pc += max_alignment;
+     }
++  else
++    if (symval > pc)
++      pc -= max_alignment;
++    else if (symval < pc)
++      pc += max_alignment;
+ 
+   const uint32_t addi_d = 0x02c00000;
+   const uint32_t pcaddi = 0x18000000;
+@@ -4428,6 +4445,21 @@ loongarch_relax_tls_ld_gd_desc (bfd *abfd, asection *sec, asection *sym_sec,
+   return true;
+ }
+ 
++/* Traverse all output sections and return the max alignment.  */
++
++static bfd_vma
++loongarch_get_max_alignment (asection *sec)
++{
++  asection *o;
++  unsigned int max_alignment_power = 0;
++
++  for (o = sec->output_section->owner->sections; o != NULL; o = o->next)
++      if (o->alignment_power > max_alignment_power)
++	max_alignment_power = o->alignment_power;
++
++  return (bfd_vma) 1 << max_alignment_power;
++}
++
+ static bool
+ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 			       struct bfd_link_info *info,
+@@ -4438,6 +4470,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+   Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (abfd);
+   Elf_Internal_Rela *relocs;
+   *again = false;
++  bfd_vma max_alignment = 0;
+ 
+   if (bfd_link_relocatable (info)
+       || sec->sec_flg0
+@@ -4470,6 +4503,15 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 
+   data->relocs = relocs;
+ 
++  /* Estimate the maximum alignment for all output sections once time
++     should be enough.  */
++  max_alignment = htab->max_alignment;
++  if (max_alignment == (bfd_vma) -1)
++    {
++      max_alignment = loongarch_get_max_alignment (sec);
++      htab->max_alignment = max_alignment;
++    }
++
+   for (unsigned int i = 0; i < sec->reloc_count; i++)
+     {
+       char symtype;
+@@ -4606,6 +4648,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  if (1 == info->relax_pass)
+ 	    loongarch_relax_align (abfd, sec, sym_sec, info, rel, symval);
+ 	  break;
++
+ 	case R_LARCH_DELETE:
+ 	  if (1 == info->relax_pass)
+ 	    {
+@@ -4613,6 +4656,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	      rel->r_info = ELFNN_R_INFO (0, R_LARCH_NONE);
+ 	    }
+ 	  break;
++
+ 	case R_LARCH_TLS_LE_HI20_R:
+ 	case R_LARCH_TLS_LE_LO12_R:
+ 	case R_LARCH_TLS_LE_ADD_R:
+@@ -4623,34 +4667,25 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	case R_LARCH_PCALA_HI20:
+ 	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
+ 	    loongarch_relax_pcala_addi (abfd, sec, sym_sec, rel, symval,
+-					info, again);
++					info, again, max_alignment);
+ 	  break;
++
+ 	case R_LARCH_GOT_PC_HI20:
+ 	  if (local_got && 0 == info->relax_pass
+ 	      && (i + 4) <= sec->reloc_count)
+ 	    {
+ 	      if (loongarch_relax_pcala_ld (abfd, sec, rel))
+ 		loongarch_relax_pcala_addi (abfd, sec, sym_sec, rel, symval,
+-					    info, again);
++					    info, again, max_alignment);
+ 	    }
+ 	  break;
+ 
+ 	case R_LARCH_TLS_LD_PC_HI20:
+-	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
+-	    loongarch_relax_tls_ld_gd_desc (abfd, sec, sym_sec, rel, symval,
+-					    info, again);
+-	  break;
+-
+ 	case R_LARCH_TLS_GD_PC_HI20:
+-	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
+-	    loongarch_relax_tls_ld_gd_desc (abfd, sec, sym_sec, rel, symval,
+-					    info, again);
+-	  break;
+-
+ 	case R_LARCH_TLS_DESC_PC_HI20:
+ 	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
+ 	    loongarch_relax_tls_ld_gd_desc (abfd, sec, sym_sec, rel, symval,
+-					    info, again);
++					    info, again, max_alignment);
+ 	  break;
+ 
+ 	default:
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-section-align-overflow.s b/ld/testsuite/ld-loongarch-elf/relax-section-align-overflow.s
+new file mode 100644
+index 00000000..c341a8bb
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-section-align-overflow.s
+@@ -0,0 +1,25 @@
++# relocation overflow because .align
++.text
++  addi.d $t0, $t1, 0
++  addi.d $t0, $t1, 0
++  # Add one NOP instruction
++  .align 3
++  addi.d $t0, $t1, 0
++
++.section ".t.a", "ax"
++  addi.d $t0, $t1, 0
++  # In one try:
++  # first pass, la.local can be relaxed (0x120200010 - 0x120000014 = 0x1ffffc)
++  # second pass, the NOP addend by .align be deleted and pc decrease 4,
++  # but .L1 not decrease because section alignment.
++  # (0x120200010 - 0x120000010 = 0x200000)
++  la.local $t0, .L1
++  .fill 0x1ffff0
++
++.section ".t.b", "ax"
++.L1:
++  addi.d $t0, $t1, 0
++  # To make section address not change when first .align 3 delete NOP
++  .align 4
++  addi.d $t0, $t1, 0
++
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index aed8457d..107e5a56 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -82,14 +82,14 @@ if [istarget loongarch64-*-*] {
+ 	  ]
+     }
+ 
+-      if [file exist "tmpdir/relax-so"] {
+-	set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-so"]
+-	if { [ regexp ".*pcaddi.*" $objdump_output] } {
+-	  pass "loongarch relax .so"
+-	} {
+-	  fail "loongarch relax .so"
+-	}
++    if [file exist "tmpdir/relax-so"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-so"]
++      if { [ regexp ".*pcaddi.*" $objdump_output] } {
++	pass "loongarch relax .so"
++      } {
++	fail "loongarch relax .so"
+       }
++    }
+ 
+     run_ld_link_tests \
+ 	[list \
+@@ -268,6 +268,17 @@ if [istarget loongarch64-*-*] {
+ 	  ]
+     }
+ 
++    run_ld_link_tests \
++	[list \
++	    [list \
++		"loongarch relax section align overflow" \
++		"-e0 -Ttext 0x120000000" "" \
++		"" \
++		{relax-section-align-overflow.s} \
++		{} \
++		"relax-section-align-overflow" \
++	    ] \
++	]
+   }
+ 
+   if [check_shared_lib_support] {
+-- 
+2.33.0
+

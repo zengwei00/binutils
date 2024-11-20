@@ -1,0 +1,308 @@
+From adb3d28328bbf2d17c3a44778497827d7d35124a Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Tue, 19 Mar 2024 21:09:12 +0800
+Subject: [PATCH 076/123] LoongArch: gas: Ignore .align if it is at the start
+ of a section
+
+Ignore .align if it is at the start of a section and the alignment
+can be divided by the section alignment, the section alignment
+can ensure this .align has a correct alignment.
+---
+ gas/config/tc-loongarch.c                     | 134 ++++++++++++++----
+ .../gas/loongarch/relax-align-first.d         |  12 ++
+ .../gas/loongarch/relax-align-first.s         |   7 +
+ .../ld-loongarch-elf/relax-align-first.d      |  15 ++
+ .../ld-loongarch-elf/relax-align-first.s      |  13 ++
+ ld/testsuite/ld-loongarch-elf/relax.exp       |   1 +
+ 6 files changed, 157 insertions(+), 25 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/relax-align-first.d
+ create mode 100644 gas/testsuite/gas/loongarch/relax-align-first.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-align-first.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-align-first.s
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 1e835f51..110b92e4 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -128,6 +128,11 @@ static bool call36 = 0;
+ #define RELAX_BRANCH_ENCODE(x) \
+   (BFD_RELOC_LARCH_B16 == (x) ? RELAX_BRANCH_16 : RELAX_BRANCH_21)
+ 
++#define ALIGN_MAX_ADDEND(n, max) ((max << 8) | n)
++#define ALIGN_MAX_NOP_BYTES(addend) ((1 << (addend & 0xff)) - 4)
++#define FRAG_AT_START_OF_SECTION(frag)	\
++  (0 == frag->fr_address && 0 == frag->fr_fix)
++
+ enum options
+ {
+   OPTION_IGNORE = OPTION_MD_BASE,
+@@ -1647,10 +1652,32 @@ md_apply_fix (fixS *fixP, valueT *valP, segT seg ATTRIBUTE_UNUSED)
+     }
+ }
+ 
++/* Estimate the size of a frag before relaxing.  */
++
+ int
+-md_estimate_size_before_relax (fragS *fragp ATTRIBUTE_UNUSED,
+-			       asection *segtype ATTRIBUTE_UNUSED)
++md_estimate_size_before_relax (fragS *fragp, asection *sec)
+ {
++  /* align pseudo instunctions.  */
++  if (rs_align_code == fragp->fr_subtype)
++    {
++      offsetT nop_bytes;
++      if (NULL == fragp->fr_symbol)
++	nop_bytes = fragp->fr_offset;
++      else
++	nop_bytes = ALIGN_MAX_NOP_BYTES (fragp->fr_offset);
++
++      /* Normally, nop_bytes should be >= 4.  */
++      gas_assert (nop_bytes > 0);
++
++      if (FRAG_AT_START_OF_SECTION (fragp)
++	  && 0 == ((1 << sec->alignment_power) % (nop_bytes + 4)))
++	return (fragp->fr_var = 0);
++      else
++	  return (fragp->fr_var = nop_bytes);
++    }
++
++  /* branch instructions and other instructions.
++     branch instructions may become 8 bytes after relaxing.  */
+   return (fragp->fr_var = 4);
+ }
+ 
+@@ -1767,8 +1794,7 @@ bool
+ loongarch_frag_align_code (int n, int max)
+ {
+   char *nops;
+-  symbolS *s;
+-  expressionS ex;
++  symbolS *s = NULL;
+ 
+   bfd_vma insn_alignment = 4;
+   bfd_vma bytes = (bfd_vma) 1 << n;
+@@ -1783,8 +1809,6 @@ loongarch_frag_align_code (int n, int max)
+   if (!LARCH_opts.relax)
+     return false;
+ 
+-  nops = frag_more (worst_case_bytes);
+-
+   /* If max <= 0, ignore max.
+      If max >= worst_case_bytes, max has no effect.
+      Similar to gas/write.c relax_segment function rs_align_code case:
+@@ -1792,20 +1816,20 @@ loongarch_frag_align_code (int n, int max)
+   if (max > 0 && (bfd_vma) max < worst_case_bytes)
+     {
+       s = symbol_find (now_seg->name);
+-      ex.X_add_symbol = s;
+-      ex.X_op = O_symbol;
+-      ex.X_add_number = (max << 8) | n;
+-    }
+-  else
+-    {
+-      ex.X_op = O_constant;
+-      ex.X_add_number = worst_case_bytes;
++      worst_case_bytes = ALIGN_MAX_ADDEND (n, max);
+     }
+ 
+-  loongarch_make_nops (nops, worst_case_bytes);
++  frag_grow (worst_case_bytes);
++  /* Use relaxable frag for .align.
++     If .align at the start of section, do nothing. Section alignment can
++     ensure correct alignment.
++     If .align is not at the start of a section, reserve NOP instructions
++     and R_LARCH_ALIGN relocation.  */
++  nops = frag_var (rs_machine_dependent, worst_case_bytes, worst_case_bytes,
++		   rs_align_code, s, worst_case_bytes, NULL);
+ 
+-  fix_new_exp (frag_now, nops - frag_now->fr_literal, 0,
+-	       &ex, false, BFD_RELOC_LARCH_ALIGN);
++  /* Default write NOP for aligned bytes.  */
++  loongarch_make_nops (nops, worst_case_bytes);
+ 
+   /* We need to start a new frag after the alignment which may be removed by
+      the linker, to prevent the assembler from computing static offsets.
+@@ -1963,8 +1987,7 @@ loongarch_relaxed_branch_length (fragS *fragp, asection *sec, int update)
+ }
+ 
+ int
+-loongarch_relax_frag (asection *sec ATTRIBUTE_UNUSED,
+-		      fragS *fragp ATTRIBUTE_UNUSED,
++loongarch_relax_frag (asection *sec, fragS *fragp,
+ 		      long stretch ATTRIBUTE_UNUSED)
+ {
+   if (RELAX_BRANCH (fragp->fr_subtype))
+@@ -1973,6 +1996,27 @@ loongarch_relax_frag (asection *sec ATTRIBUTE_UNUSED,
+       fragp->fr_var = loongarch_relaxed_branch_length (fragp, sec, true);
+       return fragp->fr_var - old_var;
+     }
++  else if (rs_align_code == fragp->fr_subtype)
++    {
++      offsetT nop_bytes;
++      if (NULL == fragp->fr_symbol)
++	nop_bytes = fragp->fr_offset;
++      else
++	nop_bytes = ALIGN_MAX_NOP_BYTES (fragp->fr_offset);
++
++      /* Normally, nop_bytes should be >= 4.  */
++      gas_assert (nop_bytes > 0);
++
++      offsetT old_var = fragp->fr_var;
++      /* If .align at the start of a section, do nothing. Section alignment
++       * can ensure correct alignment.  */
++      if (FRAG_AT_START_OF_SECTION (fragp)
++	  && 0 == ((1 << sec->alignment_power) % (nop_bytes + 4)))
++	fragp->fr_var = 0;
++      else
++	fragp->fr_var = nop_bytes;
++      return fragp->fr_var - old_var;
++    }
+   return 0;
+ }
+ 
+@@ -2048,13 +2092,53 @@ loongarch_convert_frag_branch (fragS *fragp)
+   fragp->fr_fix += fragp->fr_var;
+ }
+ 
+-/* Relax a machine dependent frag.  This returns the amount by which
+-   the current size of the frag should change.  */
++/*  Relax .align frag.  */
++
++static void
++loongarch_convert_frag_align (fragS *fragp, asection *sec)
++{
++  bfd_byte *buf = (bfd_byte *)fragp->fr_literal + fragp->fr_fix;
++
++  offsetT nop_bytes;
++  if (NULL == fragp->fr_symbol)
++    nop_bytes = fragp->fr_offset;
++  else
++    nop_bytes = ALIGN_MAX_NOP_BYTES (fragp->fr_offset);
++
++  /* Normally, nop_bytes should be >= 4.  */
++  gas_assert (nop_bytes > 0);
++
++  if (!(FRAG_AT_START_OF_SECTION (fragp)
++	&& 0 == ((1 << sec->alignment_power) % (nop_bytes + 4))))
++    {
++      expressionS exp;
++      exp.X_op = O_symbol;
++      exp.X_add_symbol = fragp->fr_symbol;
++      exp.X_add_number = fragp->fr_offset;
++
++      fixS *fixp = fix_new_exp (fragp, buf - (bfd_byte *)fragp->fr_literal,
++				nop_bytes, &exp, false, BFD_RELOC_LARCH_ALIGN);
++      fixp->fx_file = fragp->fr_file;
++      fixp->fx_line = fragp->fr_line;
++
++      buf += nop_bytes;
++    }
++
++  gas_assert (buf == (bfd_byte *)fragp->fr_literal
++	      + fragp->fr_fix + fragp->fr_var);
++
++  fragp->fr_fix += fragp->fr_var;
++}
++
++/* Relax a machine dependent frag.  */
+ 
+ void
+-md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED, segT asec ATTRIBUTE_UNUSED,
+-		 fragS *fragp)
++md_convert_frag (bfd *abfd ATTRIBUTE_UNUSED, segT asec, fragS *fragp)
+ {
+-  gas_assert (RELAX_BRANCH (fragp->fr_subtype));
+-  loongarch_convert_frag_branch (fragp);
++  gas_assert (RELAX_BRANCH (fragp->fr_subtype)
++	      || rs_align_code == fragp->fr_subtype);
++  if (RELAX_BRANCH (fragp->fr_subtype))
++    loongarch_convert_frag_branch (fragp);
++  else if (rs_align_code == fragp->fr_subtype)
++    loongarch_convert_frag_align (fragp, asec);
+ }
+diff --git a/gas/testsuite/gas/loongarch/relax-align-first.d b/gas/testsuite/gas/loongarch/relax-align-first.d
+new file mode 100644
+index 00000000..ec0698b6
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax-align-first.d
+@@ -0,0 +1,12 @@
++#as:
++#objdump: -dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++0* <.text>:
++[ 	]+0:[ 	]+4c000020[ 	]+ret
++Disassembly of section abc:
++0* <abc>:
++[ 	]+0:[ 	]+4c000020[ 	]+ret
+diff --git a/gas/testsuite/gas/loongarch/relax-align-first.s b/gas/testsuite/gas/loongarch/relax-align-first.s
+new file mode 100644
+index 00000000..a4c3d68f
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax-align-first.s
+@@ -0,0 +1,7 @@
++.text
++.align 3
++ret
++
++.section "abc", "ax"
++.align 4, ,4
++ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align-first.d b/ld/testsuite/ld-loongarch-elf/relax-align-first.d
+new file mode 100644
+index 00000000..9a4fad8e
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-align-first.d
+@@ -0,0 +1,15 @@
++#ld: -e0
++#objdump: -d
++
++.*:[    ]+file format .*
++
++
++Disassembly of section aaa:
++0000000120000078 <aaa>:
++[ 	]+120000078:[ 	]+4c000020[ 	]+ret
++Disassembly of section bbb:
++0000000120000080 <bbb>:
++[ 	]+120000080:[ 	]+4c000020[ 	]+ret
++Disassembly of section ccc:
++0000000120000090 <__bss_start-0x4004>:
++[ 	]+120000090:[ 	]+4c000020[ 	]+ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align-first.s b/ld/testsuite/ld-loongarch-elf/relax-align-first.s
+new file mode 100644
+index 00000000..0a9115b5
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-align-first.s
+@@ -0,0 +1,13 @@
++# If .align at the start of a section, do not add NOP instructions
++# and do not emit R_LARCH_ALIGN relocations.
++# Section alignment can ensure correct alignment.
++.section "aaa", "ax"
++ret
++
++.section "bbb", "ax"
++.align 3
++ret
++
++.section "ccc", "ax"
++.align 4, ,4
++ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index f378b93b..7274218f 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -20,6 +20,7 @@
+ #
+ 
+ if [istarget loongarch64-*-*] {
++  run_dump_test "relax-align-first"
+ 
+   if [isbuild loongarch64-*-*] {
+     set testname "loongarch relax .exe build"
+-- 
+2.33.0
+

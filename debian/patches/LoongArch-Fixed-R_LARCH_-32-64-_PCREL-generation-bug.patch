@@ -1,0 +1,81 @@
+From 75fa7292c935fc1306985b6959712d633edc9e36 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Sat, 21 Sep 2024 11:29:39 +0800
+Subject: [PATCH 115/123] LoongArch: Fixed R_LARCH_[32/64]_PCREL generation bug
+
+The enum BFD_RELOC_[32/64] was mistakenly used in the macro instead
+of the relocation in fixp. This can cause the second relocation
+of a pair to be deleted when -mthin-add-sub is enabled. Apply the
+correct macro to fix this.
+
+Also sets the initial value of -mthin-add-sub.
+---
+ gas/config/tc-loongarch.h                          |  3 ++-
+ gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.d | 12 ++++++++++++
+ gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.s |  6 ++++++
+ opcodes/loongarch-opc.c                            |  3 ++-
+ 4 files changed, 22 insertions(+), 2 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.d
+ create mode 100644 gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.s
+
+diff --git a/gas/config/tc-loongarch.h b/gas/config/tc-loongarch.h
+index 05c0af45..2f081edf 100644
+--- a/gas/config/tc-loongarch.h
++++ b/gas/config/tc-loongarch.h
+@@ -79,7 +79,8 @@ extern bool loongarch_frag_align_code (int, int);
+    SEC_CODE, we generate 32/64_PCREL.  */
+ #define TC_FORCE_RELOCATION_SUB_LOCAL(FIX, SEG) \
+   (!(LARCH_opts.thin_add_sub \
+-     && (BFD_RELOC_32 || BFD_RELOC_64) \
++     && ((FIX)->fx_r_type == BFD_RELOC_32 \
++	 ||(FIX)->fx_r_type == BFD_RELOC_64) \
+      && (!LARCH_opts.relax \
+ 	|| S_GET_VALUE (FIX->fx_subsy) \
+ 	   == FIX->fx_frag->fr_address + FIX->fx_where \
+diff --git a/gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.d b/gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.d
+new file mode 100644
+index 00000000..334d1742
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.d
+@@ -0,0 +1,12 @@
++#as: -mthin-add-sub
++#readelf: -rW
++#skip: loongarch32-*-*
++
++Relocation section '.rela.text' at offset 0x108 contains 6 entries:
++.*
++0+0  000000060000002f R_LARCH_ADD8           0+0 global_a \+ 0
++0+0  0000000400000034 R_LARCH_SUB8           0+0 L0\^A \+ 0
++0+1  0000000600000030 R_LARCH_ADD16          0+0 global_a \+ 0
++0+1  0000000500000035 R_LARCH_SUB16          0+1 L0\^A \+ 0
++0+3  0000000600000063 R_LARCH_32_PCREL       0+0 global_a \+ 0
++0+7  000000060000006d R_LARCH_64_PCREL       0+0 global_a \+ 0
+diff --git a/gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.s b/gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.s
+new file mode 100644
+index 00000000..68f3655c
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/no_thin_add_sub_8_16.s
+@@ -0,0 +1,6 @@
++    .text
++.L1:
++    .byte   global_a - .
++    .2byte  global_a - .
++    .4byte  global_a - .
++    .8byte  global_a - .
+diff --git a/opcodes/loongarch-opc.c b/opcodes/loongarch-opc.c
+index 6afc0e8a..f3794b6a 100644
+--- a/opcodes/loongarch-opc.c
++++ b/opcodes/loongarch-opc.c
+@@ -24,7 +24,8 @@
+ 
+ struct loongarch_ASEs_option LARCH_opts =
+ {
+-  .relax = 1
++  .relax = 1,
++  .thin_add_sub = 0
+ };
+ 
+ size_t
+-- 
+2.33.0
+

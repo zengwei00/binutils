@@ -1,0 +1,26 @@
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 7fa7fa0f..16f688d6 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -599,8 +599,21 @@ s_loongarch_option (int x ATTRIBUTE_UNUSED)
+   demand_empty_rest_of_line ();
+ }
+ 
++static void
++s_loongarch_align (int arg)
++{
++  const char *t = input_line_pointer;
++  while (!is_end_of_line[(unsigned char) *t] && *t != ',')
++    ++t;
++  if (*t == ',')
++    s_align_ptwo (arg);
++  else
++    s_align_ptwo (0);
++}
++
+ static const pseudo_typeS loongarch_pseudo_table[] =
+ {
++  { "align", s_loongarch_align, -4 },
+   { "dword", cons, 8 },
+   { "word", cons, 4 },
+   { "half", cons, 2 },

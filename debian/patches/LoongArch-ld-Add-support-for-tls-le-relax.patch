@@ -1,0 +1,410 @@
+From 752d56ec3ba19235fd3d75fd30adaa4bec10dded Mon Sep 17 00:00:00 2001
+From: changjiachen <changjiachen@stu.xupt.edu.cn>
+Date: Thu, 28 Dec 2023 20:01:15 +0800
+Subject: [PATCH 035/123] LoongArch: ld: Add support for tls le relax.
+
+Add tls le relax related testsuites in ld.
+
+The new test cases are mainly tested in three aspects:
+
+1. tls le relax function correctness test.
+2. tls le relax boundary check test.
+3. tls le relax function compatibility test.
+
+ld/testsuite/ChangeLog:
+
+	* ld/testsuite/ld-loongarch-elf/relax.exp: Modify test.
+	* ld/testsuite/ld-loongarch-elf/old-tls-le.s: New test.
+	* ld/testsuite/ld-loongarch-elf/relax-bound-check-tls-le.s: Likewise.
+	* ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-new.s: Likewise.
+	* ld/testsuite/ld-loongarch-elf/relax-tls-le.s: Likewise.
+	* ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-old.s: Likewise.
+---
+ ld/testsuite/ld-loongarch-elf/old-tls-le.s    |  23 +++
+ .../relax-bound-check-tls-le.s                |  53 ++++++
+ ld/testsuite/ld-loongarch-elf/relax-tls-le.s  |  26 +++
+ ld/testsuite/ld-loongarch-elf/relax.exp       | 151 +++++++++++++++++-
+ .../tls-relax-compatible-check-new.s          |  35 ++++
+ .../tls-relax-compatible-check-old.s          |  33 ++++
+ 6 files changed, 320 insertions(+), 1 deletion(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/old-tls-le.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-bound-check-tls-le.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-tls-le.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-new.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-old.s
+
+diff --git a/ld/testsuite/ld-loongarch-elf/old-tls-le.s b/ld/testsuite/ld-loongarch-elf/old-tls-le.s
+new file mode 100644
+index 00000000..be3d2b9c
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/old-tls-le.s
+@@ -0,0 +1,23 @@
++/* This test case mainly tests whether the original
++   tls le assembly instruction can be linked normally
++   after tls le relax is added to the current ld.  */
++
++        .text
++        .globl  aa
++        .section        .tbss,"awT",@nobits
++        .align  2
++        .type   aa, @object
++        .size   aa, 4
++aa:
++        .space  4
++        .text
++        .align  2
++        .globl  main
++        .type   main, @function
++main:
++        lu12i.w $r12,%le_hi20(aa)
++        ori     $r12,$r12,%le_lo12(aa)
++        add.d   $r12,$r12,$r2
++        addi.w  $r13,$r0,2                      # 0x2
++        stptr.w $r13,$r12,0
++
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-bound-check-tls-le.s b/ld/testsuite/ld-loongarch-elf/relax-bound-check-tls-le.s
+new file mode 100644
+index 00000000..b2a64b5d
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-bound-check-tls-le.s
+@@ -0,0 +1,53 @@
++/* This test case mainly tests whether the address of the
++   tls le symbol can be resolved normally when the offset
++   of the symbol is greater than 0x800. (When the symbol
++   offset is greater than 0x800, relax is not performed).  */
++
++        .text
++        .globl  count1
++        .section        .tbss,"awT",@nobits
++        .align  2
++        .type   count1, @object
++        .size   count1, 4
++count1:
++        .space  0x400
++        .globl  count2
++        .align  2
++        .type   count2, @object
++        .size   count2, 4
++count2:
++        .space  0x400
++        .globl  count3
++        .align  2
++        .type   count3, @object
++        .size   count3, 4
++count3:
++	.space  0x400
++        .globl  count4
++        .align  2
++        .type   count4, @object
++        .size   count4, 4
++count4:
++        .space  4
++        .text
++        .align  2
++        .globl  main
++        .type   main, @function
++main:
++	lu12i.w	$r12,%le_hi20_r(count1)
++	add.d	$r12,$r12,$r2,%le_add_r(count1)
++	addi.w	$r13,$r0,1
++	st.w	$r13,$r12,%le_lo12_r(count1)
++	lu12i.w $r12,%le_hi20_r(count2)
++	add.d   $r12,$r12,$r2,%le_add_r(count2)
++	addi.w  $r13,$r0,2
++	st.w    $r13,$r12,%le_lo12_r(count2)
++	lu12i.w $r12,%le_hi20(count3)
++	add.d   $r12,$r12,$r2,%le_add_r(count3)
++	addi.w  $r13,$r0,3
++	st.w    $r13,$r12,%le_lo12_r(count3)
++	lu12i.w $r12,%le_hi20(count4)
++	add.d   $r12,$r12,$r2,%le_add_r(count4)
++	addi.w  $r13,$r0,4
++	st.w    $r13,$r12,%le_lo12_r(count4)
++
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-tls-le.s b/ld/testsuite/ld-loongarch-elf/relax-tls-le.s
+new file mode 100644
+index 00000000..1ea53baf
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-tls-le.s
+@@ -0,0 +1,26 @@
++/* This test case mainly tests whether the tls le variable
++   address acquisition can be relax normally.
++
++   before relax:                                  after relax:
++
++   lu12i.w $r12,%le_hi20_r(sym)           ====>    (instruction deleted).
++   add.d   $r12,$r12,$r2,%le_add_r(sym)   ====>    (instruction deleted).
++   st.w    $r13,$r12,%le_lo12_r(sym)      ====>    st.w    $r13,$r2,%le_lo12_r(sym).  */
++
++	.text
++	.globl	a
++	.section	.tbss,"awT",@nobits
++	.align	2
++	.type	a, @object
++	.size	a, 4
++a:
++	.space	4
++	.text
++	.align	2
++	.globl	main
++	.type	main, @function
++main:
++	lu12i.w	$r12,%le_hi20_r(a)
++	add.d	$r12,$r12,$r2,%le_add_r(a)
++	addi.w	$r13,$r0,1			# 0x1
++	st.w	$r13,$r12,%le_lo12_r(a)
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index 77323d8d..b697d015 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -33,8 +33,90 @@ if [istarget loongarch64-*-*] {
+ 	"relax" \
+       ] \
+     ]
++    set tls_relax_builds [list \
++      [list \
++	"tls_relax_builds" \
++	"" \
++	"" \
++	{relax-tls-le.s} \
++	{}        \
++	"relax-tls-le" \
++      ] \
++    ]
++    set tls_no_relax_builds [list \
++      [list \
++	"tls_no_relax_builds" \
++	"-Wl,--no-relax" \
++	"" \
++	{relax-tls-le.s} \
++	{}        \
++	"no-relax-tls-le" \
++      ] \
++    ]
++
++    set relax_bound_check [list \
++      [list \
++	"relax_bound_check" \
++	"" \
++	"" \
++	{relax-bound-check-tls-le.s} \
++	{}        \
++	"relax-bound-check-tls-le" \
++      ] \
++    ]
++    set no_relax_bound_check [list \
++      [list \
++	"no_relax_bound_check" \
++	"-Wl,--no-relax" \
++	"" \
++	{relax-bound-check-tls-le.s} \
++	{}        \
++	"no-relax-bound-check-tls-le" \
++      ] \
++    ]
++
++    set old_tls_le [list \
++      [list \
++	"old_tls_le" \
++	"" \
++	"" \
++	{old-tls-le.s} \
++	{}        \
++	"old-tls-le" \
++      ] \
++    ]
++
++     set relax_compatible [list \
++      [list \
++	"relax_compatible" \
++	"" \
++	"" \
++	{tls-relax-compatible-check-new.s tls-relax-compatible-check-old.s} \
++	{}        \
++	"realx-compatible" \
++      ] \
++    ]
++
++    set no_relax_compatible [list \
++      [list \
++	"no_relax_compatible" \
++	"-Wl,--no-relax" \
++	"" \
++	{tls-relax-compatible-check-new.s tls-relax-compatible-check-old.s} \
++	{}        \
++	"no-realx-compatible" \
++      ] \
++    ]
++
+ 
+     run_cc_link_tests $pre_builds
++    run_cc_link_tests $tls_relax_builds
++    run_cc_link_tests $tls_no_relax_builds
++    run_cc_link_tests $relax_bound_check
++    run_cc_link_tests $no_relax_bound_check
++    run_cc_link_tests $old_tls_le
++    run_cc_link_tests $relax_compatible
++    run_cc_link_tests $no_relax_compatible
+ 
+     if [file exist "tmpdir/relax"] {
+       set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax"]
+@@ -114,8 +196,75 @@ if [istarget loongarch64-*-*] {
+ 		"relax-segment-max" \
+ 	    ] \
+ 	]
+-  }
+ 
++    if [file exist "tmpdir/relax-tls-le"] {
++      set objdump_output1 [run_host_cmd "objdump" "-d tmpdir/relax-tls-le"]
++      if { [ regexp ".addi.*st.*" $objdump_output1] } {
++	pass "loongarch relax success"
++      } {
++	fail "loongarch relax fail"
++      }
++    }
++    if [file exist "tmpdir/no-relax-tls-le"] {
++      set objdump_output2 [run_host_cmd "objdump" "-d tmpdir/no-relax-tls-le"]
++      if { [ regexp ".*lu12i.*add.*addi.*st.*" $objdump_output2] } {
++	pass "loongarch no-relax success"
++      } {
++	fail "loongarch no-relax fail"
++      }
++
++    }
++    if [file exist "tmpdir/old-tls-le"] {
++      set objdump_output3 [run_host_cmd "objdump" "-d tmpdir/old-tls-le"]
++      if { [ regexp ".*lu12i.*ori.*add.*addi.*stptr.*" $objdump_output3] } {
++	pass "loongarch old tls le success"
++      } {
++	fail "loongarch old tls le fail"
++      }
++
++    }
++
++    if [file exist "tmpdir/realx-compatible"] {
++      set objdump_output4 [run_host_cmd "objdump" "-d tmpdir/realx-compatible"]
++      if { [ regexp ".addi.*st.*" $objdump_output4] && \
++	   [ regexp ".*lu12i.*ori.*add.*addi.*stptr.*" $objdump_output4] } {
++	pass "loongarch tls le relax compatible check success"
++      } {
++	fail "loongarch tls le relax compatible check fail"
++      }
++    }
++
++    if [file exist "tmpdir/no-realx-compatible"] {
++      set objdump_output4 [run_host_cmd "objdump" "-d tmpdir/realx-compatible"]
++      if { [ regexp ".*lu12i.*add.*addi.*st.*" $objdump_output4] && \
++	   [ regexp ".*lu12i.*ori.*add.*addi.*stptr.*" $objdump_output4] } {
++	pass "loongarch tls le no-relax compatible check success"
++      } {
++	fail "loongarch tls le no-relax compatible check fail"
++      }
++    }
++
++
++    if [file exist "tmpdir/relax-bound-check-tls-le"] {
++      set objdump_output5 [run_host_cmd "objdump" "-d tmpdir/relax-bound-check-tls-le"]
++      if { [ regexp ".*lu12i.*add.*addi.*st.*" $objdump_output5] && \
++	   [ regexp ".addi.*st.*" $objdump_output5] } {
++	pass "loongarch no-relax success"
++      } {
++	fail "loongarch no-relax fail"
++      }
++
++    }
++    if [file exist "tmpdir/no-relax-bound-check-tls-le"] {
++      set objdump_output5 [run_host_cmd "objdump" "-d tmpdir/no-relax-bound-check-tls-le"]
++      if { [ regexp ".*addi.*st.*" $objdump_output5] } {
++	pass "loongarch no-relax success"
++      } {
++	fail "loongarch no-relax fail"
++      }
++    }
++
++  }
+   run_ld_link_tests \
+       [list \
+ 	  [list \
+diff --git a/ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-new.s b/ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-new.s
+new file mode 100644
+index 00000000..059ca0b9
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-new.s
+@@ -0,0 +1,35 @@
++/* This test case mainly carries out ld compatibility test.
++   This test case is the new tls le instruction sequence,
++   which will be linked with tls-relax-compatible-check-old.s.
++   If the link is normal, it indicates that there is no
++   compatibility problem.  */
++
++	.text
++	.globl	new
++	.section	.tbss,"awT",@nobits
++	.align	2
++	.type	new, @object
++	.size	new, 4
++new:
++	.space	4
++	.text
++	.align	2
++	.globl	main
++	.type	main, @function
++main:
++.LFB0 = .
++	addi.d	$r3,$r3,-16
++	st.d	$r1,$r3,8
++	stptr.d	$r22,$r3,0
++	addi.d	$r22,$r3,16
++	bl	%plt(old)
++	lu12i.w	$r12,%le_hi20_r(new)
++	add.d	$r12,$r12,$r2,%le_add_r(new)
++	addi.w	$r13,$r0,2			# 0x2
++	st.w	$r13,$r12,%le_lo12_r(new)
++	or	$r12,$r0,$r0
++	or	$r4,$r12,$r0
++	ld.d	$r1,$r3,8
++	ldptr.d	$r22,$r3,0
++	addi.d	$r3,$r3,16
++	jr	$r1
+diff --git a/ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-old.s b/ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-old.s
+new file mode 100644
+index 00000000..083a2688
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/tls-relax-compatible-check-old.s
+@@ -0,0 +1,33 @@
++/* This test case mainly carries out ld compatibility test.
++   This test case is the old tls le instruction sequence,
++   which will be linked with tls-relax-compatible-check-new.s.
++   If the link is normal, it indicates that there is no
++   compatibility problem. */
++
++	.text
++	.globl	older
++	.section	.tbss,"awT",@nobits
++	.align	2
++	.type	older, @object
++	.size	older, 4
++older:
++	.space	4
++	.text
++	.align	2
++	.globl	old
++	.type	old, @function
++old:
++.LFB0 = .
++	addi.d	$r3,$r3,-16
++	st.d	$r22,$r3,8
++	addi.d	$r22,$r3,16
++	lu12i.w	$r12,%le_hi20(older)
++	ori	$r12,$r12,%le_lo12(older)
++	add.d	$r12,$r12,$r2
++	addi.w	$r13,$r0,1			# 0x1
++	stptr.w	$r13,$r12,0
++	nop
++	or	$r4,$r12,$r0
++	ld.d	$r22,$r3,8
++	addi.d	$r3,$r3,16
++	jr	$r1
+-- 
+2.33.0
+

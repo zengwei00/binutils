@@ -1,0 +1,381 @@
+From e3cee667f81d7f7982f4a9f75370415b00e9cff6 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Sat, 2 Mar 2024 10:47:42 +0800
+Subject: [PATCH 073/123] LoongArch: Scan all illegal operand instructions
+ without interruption
+
+Currently, gas will exit immediately and report an error when
+it sees illegal operands, and will not process the remaining
+instructions. Replace as_fatal with as_bad to check for all
+illegal operands.
+
+Add test cases for illegal operands of some instructions.
+---
+ gas/config/tc-loongarch.c                     |  11 +-
+ .../gas/loongarch/check_bstrins-pick.d        |  18 +++
+ .../gas/loongarch/check_bstrins-pick.s        |   9 ++
+ gas/testsuite/gas/loongarch/illegal-operand.l | 113 +++++++++++++++++
+ gas/testsuite/gas/loongarch/illegal-operand.s | 117 ++++++++++++++++++
+ gas/testsuite/gas/loongarch/loongarch.exp     |   4 +
+ gas/testsuite/gas/loongarch/lvz-lbt.d         |   2 +-
+ gas/testsuite/gas/loongarch/lvz-lbt.s         |   2 +-
+ 8 files changed, 269 insertions(+), 7 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/check_bstrins-pick.d
+ create mode 100644 gas/testsuite/gas/loongarch/check_bstrins-pick.s
+ create mode 100644 gas/testsuite/gas/loongarch/illegal-operand.l
+ create mode 100644 gas/testsuite/gas/loongarch/illegal-operand.s
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index b510d228..ff126d56 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -958,8 +958,8 @@ check_this_insn_before_appending (struct loongarch_cl_insn *ip)
+       /* For AMO insn amswap.[wd], amadd.[wd], etc.  */
+       if (ip->args[0] != 0
+ 	  && (ip->args[0] == ip->args[1] || ip->args[0] == ip->args[2]))
+-	as_fatal (_("AMO insns require rd != base && rd != rt"
+-		    " when rd isn't $r0"));
++	as_bad (_("automic memory operations insns require rd != rj"
++		  " && rd != rk when rd isn't r0"));
+     }
+   else if ((ip->insn->mask == 0xffe08000
+ 	    /* bstrins.w  rd, rj, msbw, lsbw  */
+@@ -970,12 +970,13 @@ check_this_insn_before_appending (struct loongarch_cl_insn *ip)
+     {
+       /* For bstr(ins|pick).[wd].  */
+       if (ip->args[2] < ip->args[3])
+-	as_fatal (_("bstr(ins|pick).[wd] require msbd >= lsbd"));
++	as_bad (_("bstr(ins|pick).[wd] require msbd >= lsbd"));
+     }
+   else if (ip->insn->mask != 0 && (ip->insn_bin & 0xfe0003c0) == 0x04000000
+ 	   /* csrxchg  rd, rj, csr_num  */
+-	   && (strcmp ("csrxchg", ip->name) == 0))
+-    as_fatal (_("csrxchg require rj != $r0 && rj != $r1"));
++	   && (strcmp ("csrxchg", ip->name) == 0
++	       || strcmp ("gcsrxchg", ip->name) == 0))
++    as_bad (_("g?csrxchg require rj != r0 && rj != r1"));
+ 
+   return ret;
+ }
+diff --git a/gas/testsuite/gas/loongarch/check_bstrins-pick.d b/gas/testsuite/gas/loongarch/check_bstrins-pick.d
+new file mode 100644
+index 00000000..7575be19
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/check_bstrins-pick.d
+@@ -0,0 +1,18 @@
++#as:
++#objdump: -d
++#skip: loongarch32-*-*
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	00682041 	bstrins\.w   	\$ra, \$tp, 0x8, 0x8
++   4:	00882041 	bstrins\.d   	\$ra, \$tp, 0x8, 0x8
++   8:	0068a041 	bstrpick\.w  	\$ra, \$tp, 0x8, 0x8
++   c:	00c82041 	bstrpick\.d  	\$ra, \$tp, 0x8, 0x8
++  10:	00680041 	bstrins\.w   	\$ra, \$tp, 0x8, 0x0
++  14:	00880041 	bstrins\.d   	\$ra, \$tp, 0x8, 0x0
++  18:	00688041 	bstrpick\.w  	\$ra, \$tp, 0x8, 0x0
++  1c:	00c80041 	bstrpick\.d  	\$ra, \$tp, 0x8, 0x0
+diff --git a/gas/testsuite/gas/loongarch/check_bstrins-pick.s b/gas/testsuite/gas/loongarch/check_bstrins-pick.s
+new file mode 100644
+index 00000000..0decaf98
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/check_bstrins-pick.s
+@@ -0,0 +1,9 @@
++bstrins.w $r1,$r2,8,8
++bstrins.d $r1,$r2,8,8
++bstrpick.w $r1,$r2,8,8
++bstrpick.d $r1,$r2,8,8
++
++bstrins.w $r1,$r2,8,0
++bstrins.d $r1,$r2,8,0
++bstrpick.w $r1,$r2,8,0
++bstrpick.d $r1,$r2,8,0
+diff --git a/gas/testsuite/gas/loongarch/illegal-operand.l b/gas/testsuite/gas/loongarch/illegal-operand.l
+new file mode 100644
+index 00000000..dddc6d6f
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/illegal-operand.l
+@@ -0,0 +1,113 @@
++.*: Assembler messages:
++.*:2: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:3: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:4: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:5: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:6: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:7: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:8: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:9: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:10: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:11: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:12: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:13: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:14: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:15: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:16: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:17: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:18: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:19: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:20: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:21: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:22: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:23: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:24: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:25: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:26: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:27: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:28: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:29: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:30: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:31: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:32: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:33: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:34: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:35: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:36: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:37: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:38: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:39: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:40: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:41: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:42: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:43: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:44: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:45: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:46: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:47: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:48: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:49: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:50: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:51: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:52: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:53: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:54: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:55: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:56: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:57: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:58: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:59: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:60: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:61: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:62: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:63: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:64: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:65: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:66: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:67: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:68: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:69: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:70: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:71: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:72: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:73: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:74: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:75: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:76: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:77: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:78: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:79: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:80: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:81: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:82: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:83: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:84: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:85: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:86: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:87: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:88: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:89: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:90: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:91: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:92: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:93: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:94: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:95: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:96: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:97: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:98: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:99: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:100: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:101: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:102: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:103: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:104: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:105: Error: automic memory operations insns require rd != rj && rd != rk when rd isn't r0
++.*:108: Error: bstr\(ins\|pick\)\.\[wd\] require msbd >= lsbd
++.*:109: Error: bstr\(ins\|pick\)\.\[wd\] require msbd >= lsbd
++.*:110: Error: bstr\(ins\|pick\)\.\[wd\] require msbd >= lsbd
++.*:111: Error: bstr\(ins\|pick\)\.\[wd\] require msbd >= lsbd
++.*:114: Error: g\?csrxchg require rj != r0 && rj != r1
++.*:115: Error: g\?csrxchg require rj != r0 && rj != r1
++.*:116: Error: g\?csrxchg require rj != r0 && rj != r1
++.*:117: Error: g\?csrxchg require rj != r0 && rj != r1
+diff --git a/gas/testsuite/gas/loongarch/illegal-operand.s b/gas/testsuite/gas/loongarch/illegal-operand.s
+new file mode 100644
+index 00000000..3860539d
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/illegal-operand.s
+@@ -0,0 +1,117 @@
++# Illegal operand of atomic memory access instruction.
++amcas.b $r1,$r1,$r2
++amcas.b $r1,$r2,$r1
++amcas.h $r1,$r1,$r2
++amcas.h $r1,$r2,$r1
++amcas.w $r1,$r1,$r2
++amcas.w $r1,$r2,$r1
++amcas.d $r1,$r1,$r2
++amcas.d $r1,$r2,$r1
++amcas_db.b $r1,$r1,$r2
++amcas_db.b $r1,$r2,$r1
++amcas_db.h $r1,$r1,$r2
++amcas_db.h $r1,$r2,$r1
++amcas_db.w $r1,$r1,$r2
++amcas_db.w $r1,$r2,$r1
++amcas_db.d $r1,$r1,$r2
++amcas_db.d $r1,$r2,$r1
++amswap.b $r1,$r1,$r2
++amswap.b $r1,$r2,$r1
++amswap.h $r1,$r1,$r2
++amswap.h $r1,$r2,$r1
++amadd.b $r1,$r1,$r2
++amadd.b $r1,$r2,$r1
++amadd.h $r1,$r1,$r2
++amadd.h $r1,$r2,$r1
++amswap_db.b $r1,$r1,$r2
++amswap_db.b $r1,$r2,$r1
++amswap_db.h $r1,$r1,$r2
++amswap_db.h $r1,$r2,$r1
++amadd_db.b $r1,$r1,$r2
++amadd_db.b $r1,$r2,$r1
++amadd_db.h $r1,$r1,$r2
++amadd_db.h $r1,$r2,$r1
++amswap.w $r1,$r1,$r2
++amswap.w $r1,$r2,$r1
++amswap.d $r1,$r1,$r2
++amswap.d $r1,$r2,$r1
++amadd.w $r1,$r1,$r2
++amadd.w $r1,$r2,$r1
++amadd.d $r1,$r1,$r2
++amadd.d $r1,$r2,$r1
++amand.w $r1,$r1,$r2
++amand.w $r1,$r2,$r1
++amand.d $r1,$r1,$r2
++amand.d $r1,$r2,$r1
++amor.w $r1,$r1,$r2
++amor.w $r1,$r2,$r1
++amor.d $r1,$r1,$r2
++amor.d $r1,$r2,$r1
++amxor.w $r1,$r1,$r2
++amxor.w $r1,$r2,$r1
++amxor.d $r1,$r1,$r2
++amxor.d $r1,$r2,$r1
++ammax.w $r1,$r1,$r2
++ammax.w $r1,$r2,$r1
++ammax.d $r1,$r1,$r2
++ammax.d $r1,$r2,$r1
++ammin.w $r1,$r1,$r2
++ammin.w $r1,$r2,$r1
++ammin.d $r1,$r1,$r2
++ammin.d $r1,$r2,$r1
++ammax.wu $r1,$r1,$r2
++ammax.wu $r1,$r2,$r1
++ammax.du $r1,$r1,$r2
++ammax.du $r1,$r2,$r1
++ammin.wu $r1,$r1,$r2
++ammin.wu $r1,$r2,$r1
++ammin.du $r1,$r1,$r2
++ammin.du $r1,$r2,$r1
++amswap_db.w $r1,$r1,$r2
++amswap_db.w $r1,$r2,$r1
++amswap_db.d $r1,$r1,$r2
++amswap_db.d $r1,$r2,$r1
++amadd_db.w $r1,$r1,$r2
++amadd_db.w $r1,$r2,$r1
++amadd_db.d $r1,$r1,$r2
++amadd_db.d $r1,$r2,$r1
++amand_db.w $r1,$r1,$r2
++amand_db.w $r1,$r2,$r1
++amand_db.d $r1,$r1,$r2
++amand_db.d $r1,$r2,$r1
++amor_db.w $r1,$r1,$r2
++amor_db.w $r1,$r2,$r1
++amor_db.d $r1,$r1,$r2
++amor_db.d $r1,$r2,$r1
++amxor_db.w $r1,$r1,$r2
++amxor_db.w $r1,$r2,$r1
++amxor_db.d $r1,$r1,$r2
++amxor_db.d $r1,$r2,$r1
++ammax_db.w $r1,$r1,$r2
++ammax_db.w $r1,$r2,$r1
++ammax_db.d $r1,$r1,$r2
++ammax_db.d $r1,$r2,$r1
++ammin_db.w $r1,$r1,$r2
++ammin_db.w $r1,$r2,$r1
++ammin_db.d $r1,$r1,$r2
++ammin_db.d $r1,$r2,$r1
++ammax_db.wu $r1,$r1,$r2
++ammax_db.wu $r1,$r2,$r1
++ammax_db.du $r1,$r1,$r2
++ammax_db.du $r1,$r2,$r1
++ammin_db.wu $r1,$r1,$r2
++ammin_db.wu $r1,$r2,$r1
++ammin_db.du $r1,$r1,$r2
++ammin_db.du $r1,$r2,$r1
++
++# Illegal operand of bstr(ins|pick).[wd]
++bstrins.w $r1,$r2,0,8
++bstrins.d $r1,$r2,0,8
++bstrpick.w $r1,$r2,0,8
++bstrpick.d $r1,$r2,0,8
++
++# Illegal operand of csrxchg/gcsrxchg
++csrxchg $r0,$r0,1
++csrxchg $r0,$r1,1
++gcsrxchg $r0,$r0,1
++gcsrxchg $r0,$r1,1
+diff --git a/gas/testsuite/gas/loongarch/loongarch.exp b/gas/testsuite/gas/loongarch/loongarch.exp
+index 1051a541..a2ccfb13 100644
+--- a/gas/testsuite/gas/loongarch/loongarch.exp
++++ b/gas/testsuite/gas/loongarch/loongarch.exp
+@@ -32,4 +32,8 @@ if [istarget loongarch*-*-*] {
+ 
+   run_list_test "align"
+   run_list_test "reg-s9"
++
++  if [istarget loongarch64-*-*] {
++    run_list_test "illegal-operand"
++  }
+ }
+diff --git a/gas/testsuite/gas/loongarch/lvz-lbt.d b/gas/testsuite/gas/loongarch/lvz-lbt.d
+index f8970776..760066a0 100644
+--- a/gas/testsuite/gas/loongarch/lvz-lbt.d
++++ b/gas/testsuite/gas/loongarch/lvz-lbt.d
+@@ -10,7 +10,7 @@ Disassembly of section .text:
+ 00000000.* <.text>:
+ [ 	]*0:[ 	]*05000400[ 	]*gcsrrd[ 	]*\$zero,[ 	]*0x1[ 	]*
+ [ 	]*4:[ 	]*05000420[ 	]*gcsrwr[ 	]*\$zero,[ 	]*0x1[ 	]*
+-[ 	]*8:[ 	]*05000420[ 	]*gcsrwr[ 	]*\$zero,[ 	]*0x1[ 	]*
++[ 	]*8:[ 	]*05000440[ 	]*gcsrxchg[ 	]*\$zero,[ 	]*\$tp,[ 	]*0x1[ 	]*
+ [ 	]*c:[ 	]*06482401[ 	]*gtlbflush[ 	]*
+ [ 	]*10:[ 	]*002b8001[ 	]*hvcl[ 	]*0x1[ 	]*
+ [ 	]*14:[ 	]*00000820[ 	]*movgr2scr[ 	]*\$scr0,[ 	]*\$ra[ 	]*
+diff --git a/gas/testsuite/gas/loongarch/lvz-lbt.s b/gas/testsuite/gas/loongarch/lvz-lbt.s
+index 64469a43..2e5089e4 100644
+--- a/gas/testsuite/gas/loongarch/lvz-lbt.s
++++ b/gas/testsuite/gas/loongarch/lvz-lbt.s
+@@ -1,6 +1,6 @@
+ gcsrrd	$r0, 1
+ gcsrwr	$r0, 1
+-gcsrxchg	$r0, $r1, 1
++gcsrxchg	$r0, $r2, 1
+ gtlbflush
+ hvcl	1
+ movgr2scr	$scr0, $r1
+-- 
+2.33.0
+

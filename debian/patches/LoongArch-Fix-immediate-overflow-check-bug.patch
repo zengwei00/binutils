@@ -1,0 +1,42 @@
+From 1dfd5f57202ef519e7ae21219be9c16e7a163072 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Sat, 15 Jul 2023 17:56:07 +0800
+Subject: [PATCH 001/123] LoongArch: Fix immediate overflow check bug
+
+For B16/B21/B26/PCREL20_S2 relocations, if immediate overflow check after
+rightshift, and the mask need to include sign bit.
+
+Now, the immediate overflow check before rightshift for easier understand.
+
+bfd/ChangeLog:
+
+	* elfxx-loongarch.c (reloc_bits_pcrel20_s2): Delete.
+	(reloc_bits_b16): Delete.
+	(reloc_bits_b21): Delete.
+	(reloc_bits_b26): Delete.
+	(reloc_sign_bits): New.
+---
+ bfd/elfxx-loongarch.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index 35676ead..16a2b2fc 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -1708,10 +1708,12 @@ reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
+     {
+     case R_LARCH_SOP_POP_32_S_0_10_10_16_S2:
+     case R_LARCH_B26:
+-      /* Perform insn bits field.  25:16>>16, 15:0<<10.  */
++      /* Perform insn bits field. 15:0<<10, 25:16>>16.  */
+       val = ((val & 0xffff) << 10) | ((val >> 16) & 0x3ff);
+       break;
++    case R_LARCH_SOP_POP_32_S_0_5_10_16_S2:
+     case R_LARCH_B21:
++      /* Perform insn bits field. 15:0<<10, 20:16>>16.  */
+       val = ((val & 0xffff) << 10) | ((val >> 16) & 0x1f);
+       break;
+     default:
+-- 
+2.33.0
+

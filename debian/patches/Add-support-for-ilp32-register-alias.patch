@@ -1,0 +1,156 @@
+From 6a9c6951245b9b344ebb7ababd1e9f8192d8eccd Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Mon, 30 Oct 2023 17:07:08 +0800
+Subject: [PATCH 017/123] Add support for ilp32 register alias.
+
+---
+ gas/config/tc-loongarch.c  | 41 +++++++++++++++++---------------------
+ include/opcode/loongarch.h |  8 ++++----
+ opcodes/loongarch-dis.c    |  4 ++--
+ opcodes/loongarch-opc.c    |  8 ++++----
+ 4 files changed, 28 insertions(+), 33 deletions(-)
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 49c70bf1..59232832 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -303,6 +303,15 @@ loongarch_after_parse_args ()
+   for (i = 0; i < ARRAY_SIZE (loongarch_r_normal_name); i++)
+     str_hash_insert (r_htab, loongarch_r_normal_name[i], (void *) (i + 1), 0);
+ 
++  /* Init ilp32/lp64 registers alias.  */
++  r_abi_names = loongarch_r_alias;
++  for (i = 0; i < ARRAY_SIZE (loongarch_r_alias); i++)
++    str_hash_insert (r_htab, loongarch_r_alias[i], (void *) (i + 1),
++	0);
++  for (i = 0; i < ARRAY_SIZE (loongarch_r_alias_deprecated); i++)
++    str_hash_insert (r_deprecated_htab, loongarch_r_alias_deprecated[i],
++	(void *) (i + 1), 0);
++
+   if (!cr_htab)
+     cr_htab = str_htab_create (), str_hash_insert (cr_htab, "", 0, 0);
+ 
+@@ -323,6 +332,15 @@ loongarch_after_parse_args ()
+ 	str_hash_insert (f_htab, loongarch_f_normal_name[i], (void *) (i + 1),
+ 			 0);
+ 
++      /* Init float-ilp32/lp64 registers alias.  */
++      f_abi_names = loongarch_f_alias;
++      for (i = 0; i < ARRAY_SIZE (loongarch_f_alias); i++)
++	str_hash_insert (f_htab, loongarch_f_alias[i],
++	    (void *) (i + 1), 0);
++      for (i = 0; i < ARRAY_SIZE (loongarch_f_alias_deprecated); i++)
++	str_hash_insert (f_deprecated_htab, loongarch_f_alias_deprecated[i],
++	    (void *) (i + 1), 0);
++
+       if (!fc_htab)
+ 	fc_htab = str_htab_create (), str_hash_insert (fc_htab, "", 0, 0);
+ 
+@@ -366,29 +384,6 @@ loongarch_after_parse_args ()
+ 			 0);
+     }
+ 
+-  /* Init lp64 registers alias.  */
+-  if (LARCH_opts.ase_lp64)
+-    {
+-      r_abi_names = loongarch_r_lp64_name;
+-      for (i = 0; i < ARRAY_SIZE (loongarch_r_lp64_name); i++)
+-	str_hash_insert (r_htab, loongarch_r_lp64_name[i], (void *) (i + 1),
+-			 0);
+-      for (i = 0; i < ARRAY_SIZE (loongarch_r_lp64_name_deprecated); i++)
+-	str_hash_insert (r_deprecated_htab, loongarch_r_lp64_name_deprecated[i],
+-			 (void *) (i + 1), 0);
+-    }
+-
+-  /* Init float-lp64 registers alias */
+-  if ((LARCH_opts.ase_sf || LARCH_opts.ase_df) && LARCH_opts.ase_lp64)
+-    {
+-      f_abi_names = loongarch_f_lp64_name;
+-      for (i = 0; i < ARRAY_SIZE (loongarch_f_lp64_name); i++)
+-	str_hash_insert (f_htab, loongarch_f_lp64_name[i],
+-			 (void *) (i + 1), 0);
+-      for (i = 0; i < ARRAY_SIZE (loongarch_f_lp64_name_deprecated); i++)
+-	str_hash_insert (f_deprecated_htab, loongarch_f_lp64_name_deprecated[i],
+-			 (void *) (i + 1), 0);
+-    }
+ }
+ 
+ const char *
+diff --git a/include/opcode/loongarch.h b/include/opcode/loongarch.h
+index f358ff42..da936f79 100644
+--- a/include/opcode/loongarch.h
++++ b/include/opcode/loongarch.h
+@@ -189,11 +189,11 @@ dec2 : [1-9][0-9]?
+   extern void loongarch_eliminate_adjacent_repeat_char (char *dest, char c);
+ 
+   extern const char *const loongarch_r_normal_name[32];
+-  extern const char *const loongarch_r_lp64_name[32];
+-  extern const char *const loongarch_r_lp64_name_deprecated[32];
++  extern const char *const loongarch_r_alias[32];
++  extern const char *const loongarch_r_alias_deprecated[32];
+   extern const char *const loongarch_f_normal_name[32];
+-  extern const char *const loongarch_f_lp64_name[32];
+-  extern const char *const loongarch_f_lp64_name_deprecated[32];
++  extern const char *const loongarch_f_alias[32];
++  extern const char *const loongarch_f_alias_deprecated[32];
+   extern const char *const loongarch_fc_normal_name[4];
+   extern const char *const loongarch_fc_numeric_name[4];
+   extern const char *const loongarch_c_normal_name[8];
+diff --git a/opcodes/loongarch-dis.c b/opcodes/loongarch-dis.c
+index 1e711f27..969ea28f 100644
+--- a/opcodes/loongarch-dis.c
++++ b/opcodes/loongarch-dis.c
+@@ -82,8 +82,8 @@ set_default_loongarch_dis_options (void)
+   LARCH_opts.ase_lvz = 1;
+   LARCH_opts.ase_lbt = 1;
+ 
+-  loongarch_r_disname = loongarch_r_lp64_name;
+-  loongarch_f_disname = loongarch_f_lp64_name;
++  loongarch_r_disname = loongarch_r_alias;
++  loongarch_f_disname = loongarch_f_alias;
+   loongarch_fc_disname = loongarch_fc_normal_name;
+   loongarch_c_disname = loongarch_c_normal_name;
+   loongarch_cr_disname = loongarch_cr_normal_name;
+diff --git a/opcodes/loongarch-opc.c b/opcodes/loongarch-opc.c
+index 5cd1411a..15c7da63 100644
+--- a/opcodes/loongarch-opc.c
++++ b/opcodes/loongarch-opc.c
+@@ -41,7 +41,7 @@ const char *const loongarch_r_normal_name[32] =
+   "$r24", "$r25", "$r26", "$r27", "$r28", "$r29", "$r30", "$r31",
+ };
+ 
+-const char *const loongarch_r_lp64_name[32] =
++const char *const loongarch_r_alias[32] =
+ {
+   "$zero", "$ra", "$tp", "$sp", "$a0", "$a1", "$a2", "$a3",
+   "$a4",   "$a5", "$a6", "$a7", "$t0", "$t1", "$t2", "$t3",
+@@ -49,7 +49,7 @@ const char *const loongarch_r_lp64_name[32] =
+   "$s1",   "$s2", "$s3", "$s4", "$s5", "$s6", "$s7", "$s8",
+ };
+ 
+-const char *const loongarch_r_lp64_name_deprecated[32] =
++const char *const loongarch_r_alias_deprecated[32] =
+ {
+   "", "", "", "", "$v0", "$v1", "", "", "", "", "", "", "", "", "", "",
+   "", "", "", "", "",    "$x",  "", "", "", "", "", "", "", "", "", "",
+@@ -63,7 +63,7 @@ const char *const loongarch_f_normal_name[32] =
+   "$f24", "$f25", "$f26", "$f27", "$f28", "$f29", "$f30", "$f31",
+ };
+ 
+-const char *const loongarch_f_lp64_name[32] =
++const char *const loongarch_f_alias[32] =
+ {
+   "$fa0", "$fa1", "$fa2",  "$fa3",  "$fa4",  "$fa5",  "$fa6",  "$fa7",
+   "$ft0", "$ft1", "$ft2",  "$ft3",  "$ft4",  "$ft5",  "$ft6",  "$ft7",
+@@ -71,7 +71,7 @@ const char *const loongarch_f_lp64_name[32] =
+   "$fs0", "$fs1", "$fs2",  "$fs3",  "$fs4",  "$fs5",  "$fs6",  "$fs7",
+ };
+ 
+-const char *const loongarch_f_lp64_name_deprecated[32] =
++const char *const loongarch_f_alias_deprecated[32] =
+ {
+   "$fv0", "$fv1", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+   "",     "",     "", "", "", "", "", "", "", "", "", "", "", "", "", "",
+-- 
+2.33.0
+

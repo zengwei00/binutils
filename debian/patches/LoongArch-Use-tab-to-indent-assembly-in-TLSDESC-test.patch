@@ -1,0 +1,43 @@
+From 6f1158c052786ad574d6fdb34db4e1e5ddf90309 Mon Sep 17 00:00:00 2001
+From: Tatsuyuki Ishi <ishitatsuyuki@gmail.com>
+Date: Thu, 28 Dec 2023 23:58:01 +0900
+Subject: [PATCH 046/123] LoongArch: Use tab to indent assembly in TLSDESC test
+ suite
+
+The usual convention is to use tabs. Not all test are following this,
+but at least when using tabs, let's use it consistently throughout the
+file.
+---
+ gas/testsuite/gas/loongarch/tlsdesc_32.s | 2 +-
+ gas/testsuite/gas/loongarch/tlsdesc_64.s | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_32.s b/gas/testsuite/gas/loongarch/tlsdesc_32.s
+index ef6aee94..2a139c04 100644
+--- a/gas/testsuite/gas/loongarch/tlsdesc_32.s
++++ b/gas/testsuite/gas/loongarch/tlsdesc_32.s
+@@ -4,7 +4,7 @@
+ 	# R_LARCH_TLS_DESC_PC_LO12 var
+ 	addi.w  $a0,$a0,%desc_pc_lo12(var)
+ 	# R_LARCH_TLS_DESC_LD var
+-        ld.w    $ra,$a0,%desc_ld(var)
++	ld.w    $ra,$a0,%desc_ld(var)
+ 	# R_LARCH_TLS_DESC_CALL var
+ 	jirl    $ra,$ra,%desc_call(var)
+ 
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_64.s b/gas/testsuite/gas/loongarch/tlsdesc_64.s
+index 9d0ccb17..9850940e 100644
+--- a/gas/testsuite/gas/loongarch/tlsdesc_64.s
++++ b/gas/testsuite/gas/loongarch/tlsdesc_64.s
+@@ -4,7 +4,7 @@
+ 	# R_LARCH_TLS_DESC_PC_LO12 var
+ 	addi.d  $a0,$a0,%desc_pc_lo12(var)
+ 	# R_LARCH_TLS_DESC_LD var
+-        ld.d    $ra,$a0,%desc_ld(var)
++	ld.d    $ra,$a0,%desc_ld(var)
+ 	# R_LARCH_TLS_DESC_CALL var
+ 	jirl    $ra,$ra,%desc_call(var)
+ 
+-- 
+2.33.0
+

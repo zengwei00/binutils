@@ -1,0 +1,105 @@
+From 7460efab086ff238d2b4de990a6d4f89efaafc23 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 25 Jan 2024 09:32:14 +0800
+Subject: [PATCH 052/123] LoongArch: ld: Add support for TLS LE symbol with
+ addend
+
+Add support for TLS LE symbol with addend, such as:
+  lu12i.w $t0, %le_hi20(a + 0x8)
+  ori	  $t0, $t0, %le_lo12(a + 0x8)
+---
+ bfd/elfnn-loongarch.c                          |  5 ++---
+ .../ld-loongarch-elf/ld-loongarch-elf.exp      |  1 +
+ ld/testsuite/ld-loongarch-elf/tls-le.d         | 14 ++++++++++++++
+ ld/testsuite/ld-loongarch-elf/tls-le.s         | 18 ++++++++++++++++++
+ 4 files changed, 35 insertions(+), 3 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/tls-le.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/tls-le.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index f57b6152..858b95e1 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -3487,14 +3487,12 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	    relocation += rel->r_addend;
+ 
+ 	  RELOCATE_CALC_PC32_HI20 (relocation, pc);
+-
+ 	  break;
+ 
+ 	case R_LARCH_TLS_LE_HI20_R:
++	  relocation += rel->r_addend;
+ 	  relocation -= elf_hash_table (info)->tls_sec->vma;
+-
+ 	  RELOCATE_TLS_TP32_HI20 (relocation);
+-
+ 	  break;
+ 
+ 	case R_LARCH_PCALA_LO12:
+@@ -3675,6 +3673,7 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	case R_LARCH_TLS_LE64_HI12:
+ 	  BFD_ASSERT (resolved_local && elf_hash_table (info)->tls_sec);
+ 
++	  relocation += rel->r_addend;
+ 	  relocation -= elf_hash_table (info)->tls_sec->vma;
+ 	  break;
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index c81f20af..46b53536 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -34,6 +34,7 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "local-ifunc-reloc"
+     run_dump_test "anno-sym"
+     run_dump_test "pcala64"
++    run_dump_test "tls-le"
+ }
+ 
+ if [istarget "loongarch32-*-*"] {
+diff --git a/ld/testsuite/ld-loongarch-elf/tls-le.d b/ld/testsuite/ld-loongarch-elf/tls-le.d
+new file mode 100644
+index 00000000..cbd6adb8
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/tls-le.d
+@@ -0,0 +1,14 @@
++#ld: --no-relax
++#objdump: -d
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++[ 	]*00000001200000e8 <_start>:
++[ 	]+1200000e8:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+1200000ec:[ 	]+03802085[ 	]+ori[ 	]+\$a1, \$a0, 0x8
++[ 	]+1200000f0:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+1200000f4:[ 	]+02c02085[ 	]+addi.d[ 	]+\$a1, \$a0, 8
++[ 	]+1200000f8:[ 	]+4c000020[ 	]+ret
+diff --git a/ld/testsuite/ld-loongarch-elf/tls-le.s b/ld/testsuite/ld-loongarch-elf/tls-le.s
+new file mode 100644
+index 00000000..2e6a9de4
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/tls-le.s
+@@ -0,0 +1,18 @@
++# Support for TLS LE symbols with addend
++	.text
++	.globl	a
++	.section	.tdata,"awT",@progbits
++	.align	2
++	.type	a, @object
++	.size	a, 4
++a:
++	.word	123
++
++	.text
++	.global _start
++_start:
++	lu12i.w $r4,%le_hi20(a + 0x8)
++	ori	$r5,$r4,%le_lo12(a + 0x8)
++	lu12i.w $r4,%le_hi20_r(a + 0x8)
++	addi.d	$r5,$r4,%le_lo12_r(a + 0x8)
++	jr $ra
+-- 
+2.33.0
+

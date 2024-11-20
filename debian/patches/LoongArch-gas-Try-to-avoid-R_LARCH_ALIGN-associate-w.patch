@@ -1,0 +1,166 @@
+From 7b212e5db865a826dc15aaf5e0562133c88eb769 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Mon, 5 Feb 2024 16:16:52 +0800
+Subject: [PATCH 056/123] LoongArch: gas: Try to avoid R_LARCH_ALIGN associate
+ with a symbol
+
+The R_LARCH_ALIGN need to associated with a symbol if .align has the first
+and third expressions. If R_LARCH_ALIGN associate with a symbol, the addend can
+represent the first and third expression of .align.
+
+For '.align 3', the addend of R_LARCH_ALIGN only need to represent the alignment
+and R_LARCH_ALIGN not need to associate with a symbol.
+
+For '.align x, , y', R_LARCH_ALIGN need to associate with a symbol if 0 < y <
+2^x - 4.
+---
+ gas/config/tc-loongarch.c                 | 27 +++++++---
+ gas/testsuite/gas/loongarch/relax_align.d | 64 +++++++++++++----------
+ gas/testsuite/gas/loongarch/relax_align.s | 20 +++++--
+ 3 files changed, 72 insertions(+), 39 deletions(-)
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 5e96f624..e6da4e1e 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -1746,14 +1746,25 @@ loongarch_frag_align_code (int n, int max)
+ 
+   nops = frag_more (worst_case_bytes);
+ 
+-  s = symbol_find (".Lla-relax-align");
+-  if (s == NULL)
+-    s = (symbolS *)local_symbol_make (".Lla-relax-align", now_seg,
+-				      &zero_address_frag, 0);
+-
+-  ex.X_add_symbol = s;
+-  ex.X_op = O_symbol;
+-  ex.X_add_number = (max << 8) | n;
++  /* If max <= 0, ignore max.
++     If max >= worst_case_bytes, max has no effect.
++     Similar to gas/write.c relax_segment function rs_align_code case:
++     if (fragP->fr_subtype != 0 && offset > fragP->fr_subtype).  */
++  if (max > 0 && (bfd_vma) max < worst_case_bytes)
++    {
++      s = symbol_find (".Lla-relax-align");
++      if (s == NULL)
++	s = (symbolS *)local_symbol_make (".Lla-relax-align", now_seg,
++					  &zero_address_frag, 0);
++      ex.X_add_symbol = s;
++      ex.X_op = O_symbol;
++      ex.X_add_number = (max << 8) | n;
++    }
++  else
++    {
++      ex.X_op = O_constant;
++      ex.X_add_number = worst_case_bytes;
++    }
+ 
+   loongarch_make_nops (nops, worst_case_bytes);
+ 
+diff --git a/gas/testsuite/gas/loongarch/relax_align.d b/gas/testsuite/gas/loongarch/relax_align.d
+index 2cc6c86d..fc1fd032 100644
+--- a/gas/testsuite/gas/loongarch/relax_align.d
++++ b/gas/testsuite/gas/loongarch/relax_align.d
+@@ -1,4 +1,4 @@
+-#as: --no-warn
++#as:
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+@@ -8,29 +8,39 @@
+ Disassembly of section .text:
+ 
+ [ 	]*0000000000000000 <.Lla-relax-align>:
+-[ 	]+0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
+-[ 	]+0: R_LARCH_PCALA_HI20[ 	]+L1
+-[ 	]+0: R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+4:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
+-[ 	]+4: R_LARCH_PCALA_LO12[ 	]+L1
+-[ 	]+4: R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+8:[ 	]+03400000[ 	]+nop.*
+-[ 	]+8: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0x4
+-[ 	]+c:[ 	]+03400000[ 	]+nop.*
+-[ 	]+10:[ 	]+03400000[ 	]+nop.*
+-[ 	]+14:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
+-[ 	]+14: R_LARCH_PCALA_HI20[ 	]+L1
+-[ 	]+14: R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+18:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
+-[ 	]+18: R_LARCH_PCALA_LO12[ 	]+L1
+-[ 	]+18: R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+1c:[ 	]+03400000[ 	]+nop.*
+-[ 	]+1c: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0x404
+-[ 	]+20:[ 	]+03400000[ 	]+nop.*
+-[ 	]+24:[ 	]+03400000[ 	]+nop.*
+-[ 	]+28:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
+-[ 	]+28: R_LARCH_PCALA_HI20[ 	]+L1
+-[ 	]+28: R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+2c:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
+-[ 	]+2c: R_LARCH_PCALA_LO12[ 	]+L1
+-[ 	]+2c: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+0:[ 	]+4c000020[ 	]+ret
++[ 	]+4:[ 	]+03400000[ 	]+nop
++[ 	]+4: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
++[ 	]+8:[ 	]+03400000[ 	]+nop
++[ 	]+c:[ 	]+03400000[ 	]+nop
++[ 	]+10:[ 	]+4c000020[ 	]+ret
++[ 	]+14:[ 	]+03400000[ 	]+nop
++[ 	]+14: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
++[ 	]+18:[ 	]+03400000[ 	]+nop
++[ 	]+1c:[ 	]+03400000[ 	]+nop
++[ 	]+20:[ 	]+4c000020[ 	]+ret
++[ 	]+24:[ 	]+03400000[ 	]+nop
++[ 	]+24: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0x104
++[ 	]+28:[ 	]+03400000[ 	]+nop
++[ 	]+2c:[ 	]+03400000[ 	]+nop
++[ 	]+30:[ 	]+4c000020[ 	]+ret
++[ 	]+34:[ 	]+03400000[ 	]+nop
++[ 	]+34: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0xb04
++[ 	]+38:[ 	]+03400000[ 	]+nop
++[ 	]+3c:[ 	]+03400000[ 	]+nop
++[ 	]+40:[ 	]+4c000020[ 	]+ret
++[ 	]+44:[ 	]+03400000[ 	]+nop
++[ 	]+44: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
++[ 	]+48:[ 	]+03400000[ 	]+nop
++[ 	]+4c:[ 	]+03400000[ 	]+nop
++[ 	]+50:[ 	]+4c000020[ 	]+ret
++[ 	]+54:[ 	]+03400000[ 	]+nop
++[ 	]+54: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
++[ 	]+58:[ 	]+03400000[ 	]+nop
++[ 	]+5c:[ 	]+03400000[ 	]+nop
++[ 	]+60:[ 	]+4c000020[ 	]+ret
++[ 	]+64:[ 	]+03400000[ 	]+nop
++[ 	]+64: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
++[ 	]+68:[ 	]+03400000[ 	]+nop
++[ 	]+6c:[ 	]+03400000[ 	]+nop
++[ 	]+70:[ 	]+4c000020[ 	]+ret
+diff --git a/gas/testsuite/gas/loongarch/relax_align.s b/gas/testsuite/gas/loongarch/relax_align.s
+index c0177c88..4f4867fb 100644
+--- a/gas/testsuite/gas/loongarch/relax_align.s
++++ b/gas/testsuite/gas/loongarch/relax_align.s
+@@ -1,7 +1,19 @@
++# If max < -0x80000000, max becomes a positive number because type conversion
++# (bfd_signed_vma -> unsigned int).
+   .text
+ .L1:
+-  la.local $a0, L1
++  ret
+   .align 4
+-  la.local $a0, L1
+-  .align 4, , 4
+-  la.local $a0, L1
++  ret
++  .align 4, , 0
++  ret
++  .align 4, , 1
++  ret
++  .align 4, , 11
++  ret
++  .align 4, , 12
++  ret
++  .align 4, , -1
++  ret
++  .align 4, , -0x80000000
++  ret
+-- 
+2.33.0
+

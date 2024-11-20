@@ -1,0 +1,43 @@
+From 8338aecd231af48483e36c93c103db1da715ac74 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 16 Nov 2023 19:19:15 +0800
+Subject: [PATCH] LoongArch: Modify link_info.relax_pass from 3 to 2
+
+The first pass handles R_LARCH_RELAX relocations, the second pass
+handles R_LARCH_ALIGN relocations.
+
+Signed-off-by: Peng Fan <fanpeng@loongson.cn>
+---
+ bfd/elfnn-loongarch.c        | 2 +-
+ ld/emultempl/loongarchelf.em | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 987e5b98bc0..024c5d4cd96 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -4013,7 +4013,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+       switch (ELFNN_R_TYPE (rel->r_info))
+ 	{
+ 	case R_LARCH_ALIGN:
+-	  if (2 == info->relax_pass)
++	  if (1 == info->relax_pass)
+ 	    loongarch_relax_align (abfd, sec, sym_sec, info, rel, symval);
+ 	  break;
+ 	case R_LARCH_DELETE:
+diff --git a/ld/emultempl/loongarchelf.em b/ld/emultempl/loongarchelf.em
+index d81c99da48b..9974989489c 100644
+--- a/ld/emultempl/loongarchelf.em
++++ b/ld/emultempl/loongarchelf.em
+@@ -42,7 +42,7 @@ larch_elf_before_allocation (void)
+ 	ENABLE_RELAXATION;
+     }
+ 
+-  link_info.relax_pass = 3;
++  link_info.relax_pass = 2;
+ }
+ 
+ static void
+-- 
+2.33.0
+

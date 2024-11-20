@@ -1,0 +1,96 @@
+From b3c4d41eedd38561194a8de8c530e318f621660c Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Wed, 3 Apr 2024 10:20:27 +0800
+Subject: [PATCH 078/123] LoongArch: ld: Move .got .got.plt before .data and
+ protect .got with relro
+
+Move .got .got.plt before .data so .got can be protected with -zrelro.
+And the first two entries of .got.plt (_dl_runtime_resolve and link map)
+are placed within the relro region.
+---
+ bfd/elfnn-loongarch.c                            |  2 ++
+ ld/emulparams/elf64loongarch-defs.sh             |  5 ++++-
+ ld/testsuite/ld-loongarch-elf/data-got.d         | 16 ++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/data-got.s         |  6 ++++++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp        |  1 +
+ 5 files changed, 29 insertions(+), 1 deletion(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/data-got.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/data-got.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 7f98dce1..36f1cfd5 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -127,6 +127,8 @@ struct loongarch_elf_link_hash_table
+ 
+ #define GOT_ENTRY_SIZE (LARCH_ELF_WORD_BYTES)
+ 
++/* Reserve two entries of GOTPLT for ld.so, one is used for PLT
++   resolver _dl_runtime_resolve, the other is used for link map.  */
+ #define GOTPLT_HEADER_SIZE (GOT_ENTRY_SIZE * 2)
+ 
+ #define elf_backend_want_got_plt 1
+diff --git a/ld/emulparams/elf64loongarch-defs.sh b/ld/emulparams/elf64loongarch-defs.sh
+index c793f5d8..a8147bf7 100644
+--- a/ld/emulparams/elf64loongarch-defs.sh
++++ b/ld/emulparams/elf64loongarch-defs.sh
+@@ -34,6 +34,9 @@ TEXT_START_ADDR=0x120000000
+ MAXPAGESIZE="CONSTANT (MAXPAGESIZE)"
+ COMMONPAGESIZE="CONSTANT (COMMONPAGESIZE)"
+ 
+-SEPARATE_GOTPLT=0
++# Put .got before .data
++DATA_GOT=" "
++# First two entries for PLT resolver _dl_runtime_resolve and link map.
++SEPARATE_GOTPLT="SIZEOF (.got.plt) >= 16 ? 16 : 0"
+ INITIAL_READONLY_SECTIONS=".interp         : { *(.interp) } ${CREATE_PIE-${INITIAL_READONLY_SECTIONS}}"
+ INITIAL_READONLY_SECTIONS="${RELOCATING+${CREATE_SHLIB-${INITIAL_READONLY_SECTIONS}}}"
+diff --git a/ld/testsuite/ld-loongarch-elf/data-got.d b/ld/testsuite/ld-loongarch-elf/data-got.d
+new file mode 100644
+index 00000000..a754478a
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/data-got.d
+@@ -0,0 +1,16 @@
++# line 11 test the first two entries of .got.plt in relro region
++# relro segment size is .dynamic size + .got size + 0x10
++# line 13 test .got .got.plt before .got
++# line 15 test .got in relro segment
++#as:
++#ld: -shared -z relro --hash-style=both
++#readelf: -l --wide
++#skip: loongarch32-*-*
++
++#...
++  GNU_RELRO      0x003c10 0x0000000000007c10 0x0000000000007c10 0x0003f0 0x0003f0 R   0x1
++#...
++   01     .dynamic .got .got.plt .data 
++#...
++   03     .dynamic .got 
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/data-got.s b/ld/testsuite/ld-loongarch-elf/data-got.s
+new file mode 100644
+index 00000000..364fcf64
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/data-got.s
+@@ -0,0 +1,6 @@
++.text
++b foo
++.section .got
++.space 0x2a8, 4
++.data
++.zero 24
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 0121cad9..fc7b5bfe 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -133,6 +133,7 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "tlsdesc-dso"
+     run_dump_test "desc-norelax"
+     run_dump_test "desc-relax"
++    run_dump_test "data-got"
+   }
+ 
+   if [check_pie_support] {
+-- 
+2.33.0
+

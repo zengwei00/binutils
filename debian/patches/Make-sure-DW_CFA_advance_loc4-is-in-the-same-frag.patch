@@ -1,0 +1,37 @@
+From 4c35fff684c03e27b0b4a421681be4e90cd293a2 Mon Sep 17 00:00:00 2001
+From: Jinyang He <hejinyang@loongson.cn>
+Date: Thu, 10 Aug 2023 10:21:40 +0800
+Subject: [PATCH 008/123] Make sure DW_CFA_advance_loc4 is in the same frag
+
+Do the same as commit b9d8f5601bcf in another place generating
+DW_CFA_advance_loc4.  The idea behind commit b9d8f5601bcf was that
+when a DW_CFA_advance_loc4 of zero is seen in eh_frame_relax_frag and
+eh_frame_convert_frag we want to remove the opcode entirely, not just
+convert to a nop.  If the opcode was split over two frags then a size
+adjustment would need to be done to the first frag, not just the
+second as is correct for other cases with split frags.  This would
+complicate the eh relaxation.  It's easier to ensure the frag is not
+split.
+
+	* ehopt.c (check_eh_frame): Don't allow DW_CFA_advance_loc4
+	to be placed in a different frag to the rs_cfa.
+---
+ gas/ehopt.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gas/ehopt.c b/gas/ehopt.c
+index feea61b9..9d6606ad 100644
+--- a/gas/ehopt.c
++++ b/gas/ehopt.c
+@@ -386,7 +386,7 @@ check_eh_frame (expressionS *exp, unsigned int *pnbytes)
+ 	{
+ 	  /* This might be a DW_CFA_advance_loc4.  Record the frag and the
+ 	     position within the frag, so that we can change it later.  */
+-	  frag_grow (1);
++	  frag_grow (1 + 4);
+ 	  d->state = state_saw_loc4;
+ 	  d->loc4_frag = frag_now;
+ 	  d->loc4_fix = frag_now_fix ();
+-- 
+2.33.0
+

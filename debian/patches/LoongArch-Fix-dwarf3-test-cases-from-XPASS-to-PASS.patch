@@ -1,0 +1,38 @@
+From 30f91452b13e20976c0d470f1e097c083571459b Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Thu, 11 Jul 2024 19:00:43 +0800
+Subject: [PATCH 102/123] LoongArch: Fix dwarf3 test cases from XPASS to PASS
+
+In the past, the .align directive generated a label that did not match
+the regular expression, and we set it to XFAIL.
+But now it matches fine so it becomes XPASS. We fix it with PASS.
+---
+ ld/testsuite/ld-elf/dwarf.exp | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/ld/testsuite/ld-elf/dwarf.exp b/ld/testsuite/ld-elf/dwarf.exp
+index 5cb2aab9..3d1b99ac 100644
+--- a/ld/testsuite/ld-elf/dwarf.exp
++++ b/ld/testsuite/ld-elf/dwarf.exp
+@@ -52,9 +52,6 @@ set build_tests {
+   {"DWARF parse during linker error"
+    "" "-fno-toplevel-reorder"
+    {dwarf2a.c dwarf2b.c} {{error_output "dwarf2.err"}} "dwarf2.x"}
+-}
+-
+-set build_tests_dwarf3 {
+   {"Handle no DWARF information"
+    "" "-g0"
+    {dwarf3.c} {{error_output "dwarf3.err"}} "dwarf3.x"}
+@@ -75,8 +72,6 @@ set run_tests {
+ set old_CFLAGS "$CFLAGS_FOR_TARGET"
+ append CFLAGS_FOR_TARGET " $NOSANITIZE_CFLAGS"
+ run_cc_link_tests $build_tests
+-setup_xfail loongarch*-*-*
+-run_cc_link_tests $build_tests_dwarf3
+ run_ld_link_exec_tests $run_tests
+ set CFLAGS_FOR_TARGET "$old_CFLAGS"
+ 
+-- 
+2.33.0
+

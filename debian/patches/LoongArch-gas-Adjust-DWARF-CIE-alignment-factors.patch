@@ -1,0 +1,49 @@
+From 3b3e724f35e119acdbac2c8c6682a11e9cae64e2 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Mon, 29 Apr 2024 15:11:31 +0800
+Subject: [PATCH 086/123] LoongArch: gas: Adjust DWARF CIE alignment factors
+
+Set DWARF2_CIE_DATA_ALIGNMENT (data alignment factors) to -8.
+It helps to save space.
+
+Data Alignment Factor
+A signed LEB128 encoded value that is factored out of all offset
+instructions that are associated with this CIE or its FDEs. This value
+shall be multiplied by the register offset argument of an offset
+instruction to obtain the new offset value.
+---
+ gas/config/tc-loongarch.h | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
+
+diff --git a/gas/config/tc-loongarch.h b/gas/config/tc-loongarch.h
+index 0b5cdfe6..6963867e 100644
+--- a/gas/config/tc-loongarch.h
++++ b/gas/config/tc-loongarch.h
+@@ -99,15 +99,19 @@ extern bool loongarch_frag_align_code (int, int);
+ 
+ #define TC_FORCE_RELOCATION_LOCAL(FIX) 1
+ 
+-/* Adjust debug_line after relaxation.  */
+-#define DWARF2_USE_FIXED_ADVANCE_PC 1
+-
+ /* Values passed to md_apply_fix don't include symbol values.  */
+ #define MD_APPLY_SYM_VALUE(FIX) 0
+ 
+ #define TARGET_USE_CFIPOP 1
+-#define DWARF2_DEFAULT_RETURN_COLUMN 1 /* $ra.  */
+-#define DWARF2_CIE_DATA_ALIGNMENT -4
++/* Adjust debug_line after relaxation.  */
++#define DWARF2_USE_FIXED_ADVANCE_PC   1
++
++/* FDE Data Alignment Factor.
++   FDE Code Alignment Factor (DWARF2_LINE_MIN_INSN_LENGTH) should be 1
++   because DW_CFA_advance_loc need to be relocated in bytes
++   when linker relaxation.  */
++#define DWARF2_CIE_DATA_ALIGNMENT     (-8)
++#define DWARF2_DEFAULT_RETURN_COLUMN  1	    /* FDE Return Address Register.  */
+ 
+ #define tc_cfi_frame_initial_instructions	\
+   loongarch_cfi_frame_initial_instructions
+-- 
+2.33.0
+

@@ -1,0 +1,78 @@
+From df4ffdd8c87b32357f929fb4a861760038f3bbb8 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 15 Nov 2023 19:20:53 +0800
+Subject: [PATCH] LoongArch: fix internal error when as handling unsupported
+ modifier.
+
+Signed-off-by: Peng Fan <fanpeng@loongson.cn>
+---
+ bfd/elfxx-loongarch.c                    | 3 ---
+ gas/config/loongarch-parse.y             | 6 +++++-
+ gas/testsuite/gas/loongarch/reloc_type.d | 3 +++
+ gas/testsuite/gas/loongarch/reloc_type.l | 2 ++
+ gas/testsuite/gas/loongarch/reloc_type.s | 3 +++
+ 5 files changed, 13 insertions(+), 4 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/reloc_type.d
+ create mode 100644 gas/testsuite/gas/loongarch/reloc_type.l
+ create mode 100644 gas/testsuite/gas/loongarch/reloc_type.s
+
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index a970a257aa9..7f298c08fd3 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -1629,9 +1629,6 @@ loongarch_larch_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED,
+ 	return lht->bfd_type;
+     }
+ 
+-  (*_bfd_error_handler) (_("%pB: unsupported relocation type name %s"),
+-			 abfd, l_r_name);
+-  bfd_set_error (bfd_error_bad_value);
+   return BFD_RELOC_NONE;
+ }
+ 
+diff --git a/gas/config/loongarch-parse.y b/gas/config/loongarch-parse.y
+index f4e1a63b972..f786fdaee5f 100644
+--- a/gas/config/loongarch-parse.y
++++ b/gas/config/loongarch-parse.y
+@@ -132,7 +132,11 @@ reloc (const char *op_c_str, const char *id_c_str, offsetT addend)
+   if (0 == strcmp (op_c_str, "plt"))
+     btype = BFD_RELOC_LARCH_B26;
+   else
+-    btype = loongarch_larch_reloc_name_lookup (NULL, op_c_str);
++    {
++      btype = loongarch_larch_reloc_name_lookup (NULL, op_c_str);
++      if (btype == BFD_RELOC_NONE)
++	as_fatal (_("unsupported modifier %s"), op_c_str);
++    }
+ 
+   if (id_c_str)
+   {
+diff --git a/gas/testsuite/gas/loongarch/reloc_type.d b/gas/testsuite/gas/loongarch/reloc_type.d
+new file mode 100644
+index 00000000000..0a8f77825a0
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/reloc_type.d
+@@ -0,0 +1,3 @@
++#as:
++#source: reloc_type.s
++#error_output: reloc_type.l
+diff --git a/gas/testsuite/gas/loongarch/reloc_type.l b/gas/testsuite/gas/loongarch/reloc_type.l
+new file mode 100644
+index 00000000000..e981f6f2aa5
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/reloc_type.l
+@@ -0,0 +1,2 @@
++.*Assembler messages:
++.*Fatal error: unsupported modifier (.*)$
+diff --git a/gas/testsuite/gas/loongarch/reloc_type.s b/gas/testsuite/gas/loongarch/reloc_type.s
+new file mode 100644
+index 00000000000..2ce277779db
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/reloc_type.s
+@@ -0,0 +1,3 @@
++.L1:
++  nop
++  addi.d $a0,$a1,%reloc(x)
+-- 
+2.33.0
+

@@ -1,0 +1,149 @@
+From e361b5c22683557c2214f8bb9032d80bb7c3d4e0 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Thu, 7 Mar 2024 11:09:14 +0800
+Subject: [PATCH 072/123] LoongArch: Fix gas and ld test cases
+
+* After adding the old LE relax, all old LE relocations will have
+  an R_LARCH_RELAX relocation. Fix the gas test case failure caused
+  by the implementation of the old LE relax.
+
+* loongarch64-elf does not support pie and -z norelro options,
+  removed in test files.
+---
+ gas/testsuite/gas/loongarch/relocs_32.d            | 2 ++
+ gas/testsuite/gas/loongarch/relocs_64.d            | 4 ++++
+ ld/testsuite/ld-loongarch-elf/desc-le-norelax.d    | 2 +-
+ ld/testsuite/ld-loongarch-elf/desc-le-relax.d      | 2 +-
+ ld/testsuite/ld-loongarch-elf/ie-le-norelax.d      | 2 +-
+ ld/testsuite/ld-loongarch-elf/ie-le-relax.d        | 2 +-
+ ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp | 5 ++++-
+ ld/testsuite/ld-loongarch-elf/macro_op_32.d        | 4 ++++
+ 8 files changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/gas/testsuite/gas/loongarch/relocs_32.d b/gas/testsuite/gas/loongarch/relocs_32.d
+index 3e1bb62e..96ef2800 100644
+--- a/gas/testsuite/gas/loongarch/relocs_32.d
++++ b/gas/testsuite/gas/loongarch/relocs_32.d
+@@ -30,8 +30,10 @@ Disassembly of section .text:
+ 			24: R_LARCH_GOT_LO12	.L1
+   28:	14000004 	lu12i.w     	\$a0, 0
+ 			28: R_LARCH_TLS_LE_HI20	TLSL1
++			28: R_LARCH_RELAX	\*ABS\*
+   2c:	03800085 	ori         	\$a1, \$a0, 0x0
+ 			2c: R_LARCH_TLS_LE_LO12	TLSL1
++			2c: R_LARCH_RELAX	\*ABS\*
+   30:	1a000004 	pcalau12i   	\$a0, 0
+ 			30: R_LARCH_TLS_IE_PC_HI20	TLSL1
+   34:	02c00005 	li.d        	\$a1, 0
+diff --git a/gas/testsuite/gas/loongarch/relocs_64.d b/gas/testsuite/gas/loongarch/relocs_64.d
+index 631137eb..35dde02f 100644
+--- a/gas/testsuite/gas/loongarch/relocs_64.d
++++ b/gas/testsuite/gas/loongarch/relocs_64.d
+@@ -48,12 +48,16 @@ Disassembly of section .text:
+ 			48: R_LARCH_GOT64_HI12	.L1
+   4c:	14000004 	lu12i.w     	\$a0, 0
+ 			4c: R_LARCH_TLS_LE_HI20	TLSL1
++			4c: R_LARCH_RELAX	\*ABS\*
+   50:	03800085 	ori         	\$a1, \$a0, 0x0
+ 			50: R_LARCH_TLS_LE_LO12	TLSL1
++			50: R_LARCH_RELAX	\*ABS\*
+   54:	16000004 	lu32i.d     	\$a0, 0
+ 			54: R_LARCH_TLS_LE64_LO20	TLSL1
++			54: R_LARCH_RELAX	\*ABS\*
+   58:	03000085 	lu52i.d     	\$a1, \$a0, 0
+ 			58: R_LARCH_TLS_LE64_HI12	TLSL1
++			58: R_LARCH_RELAX	\*ABS\*
+   5c:	1a000004 	pcalau12i   	\$a0, 0
+ 			5c: R_LARCH_TLS_IE_PC_HI20	TLSL1
+   60:	02c00005 	li.d        	\$a1, 0
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-le-norelax.d b/ld/testsuite/ld-loongarch-elf/desc-le-norelax.d
+index 5a53245a..43749f1b 100644
+--- a/ld/testsuite/ld-loongarch-elf/desc-le-norelax.d
++++ b/ld/testsuite/ld-loongarch-elf/desc-le-norelax.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -z norelro -e0 --no-relax
++#ld: -e0 --no-relax
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-le-relax.d b/ld/testsuite/ld-loongarch-elf/desc-le-relax.d
+index 03b5535e..71a540fd 100644
+--- a/ld/testsuite/ld-loongarch-elf/desc-le-relax.d
++++ b/ld/testsuite/ld-loongarch-elf/desc-le-relax.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -z norelro -e0
++#ld: -e0
+ #objdump: -dr -M no-aliases
+ #skip: loongarch32-*-*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/ie-le-norelax.d b/ld/testsuite/ld-loongarch-elf/ie-le-norelax.d
+index 81d78ca3..0221b495 100644
+--- a/ld/testsuite/ld-loongarch-elf/ie-le-norelax.d
++++ b/ld/testsuite/ld-loongarch-elf/ie-le-norelax.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -z norelro -e0 --no-relax
++#ld: -e0 --no-relax
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/ie-le-relax.d b/ld/testsuite/ld-loongarch-elf/ie-le-relax.d
+index 03b5535e..71a540fd 100644
+--- a/ld/testsuite/ld-loongarch-elf/ie-le-relax.d
++++ b/ld/testsuite/ld-loongarch-elf/ie-le-relax.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -z norelro -e0
++#ld: -e0
+ #objdump: -dr -M no-aliases
+ #skip: loongarch32-*-*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index ca428f5b..c839f525 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -133,6 +133,10 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "desc-relax"
+   }
+ 
++  if [check_pie_support] {
++    run_dump_test "pie_discard"
++  }
++
+   run_dump_test "max_imm_b16"
+   run_dump_test "max_imm_b21"
+   run_dump_test "max_imm_b26"
+@@ -145,7 +149,6 @@ if [istarget "loongarch64-*-*"] {
+   run_dump_test "underflow_b21"
+   run_dump_test "underflow_b26"
+   run_dump_test "underflow_pcrel20"
+-  run_dump_test "pie_discard"
+   run_dump_test "desc-le-norelax"
+   run_dump_test "desc-le-relax"
+   run_dump_test "ie-le-norelax"
+diff --git a/ld/testsuite/ld-loongarch-elf/macro_op_32.d b/ld/testsuite/ld-loongarch-elf/macro_op_32.d
+index a7349aa8..8fd69922 100644
+--- a/ld/testsuite/ld-loongarch-elf/macro_op_32.d
++++ b/ld/testsuite/ld-loongarch-elf/macro_op_32.d
+@@ -49,12 +49,16 @@ Disassembly of section .text:
+ 			3c: R_LARCH_RELAX	\*ABS\*
+   40:	14000004 	lu12i.w     	\$a0, 0
+ 			40: R_LARCH_TLS_LE_HI20	TLS1
++			40: R_LARCH_RELAX	\*ABS\*
+   44:	03800084 	ori         	\$a0, \$a0, 0x0
+ 			44: R_LARCH_TLS_LE_LO12	TLS1
++			44: R_LARCH_RELAX	\*ABS\*
+   48:	1a000004 	pcalau12i   	\$a0, 0
+ 			48: R_LARCH_TLS_IE_PC_HI20	TLS1
++			48: R_LARCH_RELAX	\*ABS\*
+   4c:	28800084 	ld.w        	\$a0, \$a0, 0
+ 			4c: R_LARCH_TLS_IE_PC_LO12	TLS1
++			4c: R_LARCH_RELAX	\*ABS\*
+   50:	1a000004 	pcalau12i   	\$a0, 0
+ 			50: R_LARCH_TLS_LD_PC_HI20	TLS1
+ 			50: R_LARCH_RELAX	\*ABS\*
+-- 
+2.33.0
+

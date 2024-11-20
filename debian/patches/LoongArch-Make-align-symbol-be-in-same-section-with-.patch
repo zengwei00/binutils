@@ -1,0 +1,303 @@
+From ea14dbe723a67501b377bf6d4f390ca4b6a58938 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Wed, 29 May 2024 14:50:39 +0800
+Subject: [PATCH 089/123] LoongArch: Make align symbol be in same section with
+ alignment directive
+
+R_LARCH_ALIGN (psABI v2.30) requires a symbol index. The symbol is only
+created at the first time to handle alignment directive. This means that
+all other sections may use this symbol. If the section of this symbol is
+discarded, there may be problems. Search it in its own section.
+
+Remove elf_backend_data.is_rela_normal() function added at commit daeda14191c.
+
+Co-authored-by: Jinyang He <hejinyang@loongson.cn>
+Reported-by: WANG Xuerui <git@xen0n.name>
+Link: https://lore.kernel.org/loongarch/2abbb633-a10e-71cc-a5e1-4d9e39074066@loongson.cn/T/#t
+---
+ bfd/elf-bfd.h                              |  4 --
+ bfd/elflink.c                              |  5 +-
+ bfd/elfnn-loongarch.c                      | 16 ------
+ bfd/elfxx-target.h                         |  5 --
+ gas/config/tc-loongarch.c                  | 63 +++++++++++++++++++++-
+ gas/config/tc-loongarch.h                  |  3 ++
+ gas/testsuite/gas/loongarch/relax-align2.d | 24 +++++++++
+ gas/testsuite/gas/loongarch/relax-align2.s | 11 ++++
+ gas/testsuite/gas/loongarch/relax_align.d  |  6 +--
+ 9 files changed, 104 insertions(+), 33 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/relax-align2.d
+ create mode 100644 gas/testsuite/gas/loongarch/relax-align2.s
+
+diff --git a/bfd/elf-bfd.h b/bfd/elf-bfd.h
+index 074120a5..ec856764 100644
+--- a/bfd/elf-bfd.h
++++ b/bfd/elf-bfd.h
+@@ -1703,10 +1703,6 @@ struct elf_backend_data
+      backend relocate_section routine for relocatable linking.  */
+   unsigned rela_normal : 1;
+ 
+-  /* Whether a relocation is rela_normal. Compared with rela_normal,
+-     is_rela_normal can set part of relocations to rela_normal.  */
+-  bool (*is_rela_normal) (Elf_Internal_Rela *);
+-
+   /* Set if DT_REL/DT_RELA/DT_RELSZ/DT_RELASZ should not include PLT
+      relocations.  */
+   unsigned dtrel_excludes_plt : 1;
+diff --git a/bfd/elflink.c b/bfd/elflink.c
+index cbf87d70..7217c2f0 100644
+--- a/bfd/elflink.c
++++ b/bfd/elflink.c
+@@ -11647,10 +11647,7 @@ elf_link_input_bfd (struct elf_final_link_info *flinfo, bfd *input_bfd)
+ 		    {
+ 		      rel_hash = PTR_ADD (esdo->rela.hashes, esdo->rela.count);
+ 		      rela_hash_list = rel_hash;
+-		      if (bed->is_rela_normal != NULL)
+-			rela_normal = bed->is_rela_normal (irela);
+-		      else
+-			rela_normal = bed->rela_normal;
++		      rela_normal = bed->rela_normal;
+ 		    }
+ 
+ 		  irela->r_offset = _bfd_elf_section_offset (output_bfd,
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index eb572a77..9eaad7f4 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -5527,21 +5527,6 @@ elf_loongarch64_hash_symbol (struct elf_link_hash_entry *h)
+   return _bfd_elf_hash_symbol (h);
+ }
+ 
+-/* If a relocation is rela_normal and the symbol associated with the
+-   relocation is STT_SECTION type, the addend of the relocation would add
+-   sec->output_offset when partial linking (ld -r).
+-   See elf_backend_data.rela_normal and elf_link_input_bfd().
+-   The addend of R_LARCH_ALIGN is used to represent the first and third
+-   expression of .align, it should be a constant when linking.  */
+-
+-static bool
+-loongarch_elf_is_rela_normal (Elf_Internal_Rela *rel)
+-{
+-  if (R_LARCH_ALIGN == ELFNN_R_TYPE (rel->r_info))
+-    return false;
+-  return true;
+-}
+-
+ #define TARGET_LITTLE_SYM loongarch_elfNN_vec
+ #define TARGET_LITTLE_NAME "elfNN-loongarch"
+ #define ELF_ARCH bfd_arch_loongarch
+@@ -5577,7 +5562,6 @@ loongarch_elf_is_rela_normal (Elf_Internal_Rela *rel)
+ #define elf_backend_grok_psinfo loongarch_elf_grok_psinfo
+ #define elf_backend_hash_symbol elf_loongarch64_hash_symbol
+ #define bfd_elfNN_bfd_relax_section loongarch_elf_relax_section
+-#define elf_backend_is_rela_normal loongarch_elf_is_rela_normal
+ 
+ #define elf_backend_dtrel_excludes_plt 1
+ 
+diff --git a/bfd/elfxx-target.h b/bfd/elfxx-target.h
+index 385e40b7..f8553006 100644
+--- a/bfd/elfxx-target.h
++++ b/bfd/elfxx-target.h
+@@ -703,10 +703,6 @@
+ #define elf_backend_rela_normal 0
+ #endif
+ 
+-#ifndef elf_backend_is_rela_normal
+-#define elf_backend_is_rela_normal NULL
+-#endif
+-
+ #ifndef elf_backend_dtrel_excludes_plt
+ #define elf_backend_dtrel_excludes_plt 0
+ #endif
+@@ -952,7 +948,6 @@ static const struct elf_backend_data elfNN_bed =
+   elf_backend_default_use_rela_p,
+   elf_backend_rela_plts_and_copies_p,
+   elf_backend_rela_normal,
+-  elf_backend_is_rela_normal,
+   elf_backend_dtrel_excludes_plt,
+   elf_backend_sign_extend_vma,
+   elf_backend_want_got_plt,
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index f030fd07..f039d027 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -419,6 +419,55 @@ loongarch_target_format ()
+   return LARCH_opts.ase_lp64 ? "elf64-loongarch" : "elf32-loongarch";
+ }
+ 
++typedef struct
++{
++  unsigned int sec_id;
++  symbolS *s;
++} align_sec_sym;
++
++static htab_t align_hash;
++
++static hashval_t
++align_sec_sym_hash (const void *entry)
++{
++  const align_sec_sym *e = entry;
++  return (hashval_t) (e->sec_id);
++}
++
++static int
++align_sec_sym_eq (const void *entry1, const void *entry2)
++{
++  const align_sec_sym *e1 = entry1, *e2 = entry2;
++  return e1->sec_id == e2->sec_id;
++}
++
++/* Make align symbol be in same section with alignment directive.
++   If the symbol is only created at the first time to handle alignment
++   directive.  This means that all other sections may use this symbol.
++   If the section of this symbol is discarded, there may be problems.  */
++
++static symbolS *get_align_symbol (segT sec)
++{
++  align_sec_sym search = { sec->id, NULL };
++  align_sec_sym *pentry = htab_find (align_hash, &search);
++  if (pentry)
++    return pentry->s;
++
++  /* If we not find the symbol in this section.  Create and insert it.  */
++  symbolS *s = (symbolS *)local_symbol_make (".Lla-relax-align", sec,
++					     &zero_address_frag, 0);
++  align_sec_sym entry = { sec->id, s };
++  align_sec_sym **slot = (align_sec_sym **) htab_find_slot (align_hash,
++							    &entry, INSERT);
++  if (slot == NULL)
++    return NULL;
++  *slot = (align_sec_sym *) xmalloc (sizeof (align_sec_sym));
++  if (*slot == NULL)
++    return NULL;
++  **slot = entry;
++  return entry.s;
++}
++
+ void
+ md_begin ()
+ {
+@@ -440,11 +489,21 @@ md_begin ()
+ 		    it->name, it->format, it->macro);
+       }
+ 
++  align_hash = htab_create (10, align_sec_sym_hash, align_sec_sym_eq, free);
++
+   /* FIXME: expressionS use 'offsetT' as constant,
+    * we want this is 64-bit type.  */
+   assert (8 <= sizeof (offsetT));
+ }
+ 
++/* Called just before the assembler exits.  */
++
++void
++loongarch_md_end (void)
++{
++  htab_delete (align_hash);
++}
++
+ unsigned long
+ loongarch_mach (void)
+ {
+@@ -1826,7 +1885,9 @@ loongarch_frag_align_code (int n, int max)
+      if (fragP->fr_subtype != 0 && offset > fragP->fr_subtype).  */
+   if (align_max)
+     {
+-      s = symbol_find (now_seg->name);
++      s = get_align_symbol (now_seg);
++      if (!s)
++	as_fatal (_("internal error: cannot get align symbol"));
+       addend = ALIGN_MAX_ADDEND (n, max);
+     }
+ 
+diff --git a/gas/config/tc-loongarch.h b/gas/config/tc-loongarch.h
+index 6963867e..05c0af45 100644
+--- a/gas/config/tc-loongarch.h
++++ b/gas/config/tc-loongarch.h
+@@ -32,6 +32,9 @@ extern unsigned long loongarch_mach (void);
+ #define WORKING_DOT_WORD 1
+ #define REPEAT_CONS_EXPRESSIONS
+ 
++#define md_end loongarch_md_end
++extern void loongarch_md_end (void);
++
+ /* Early than md_begin.  */
+ #define md_after_parse_args loongarch_after_parse_args
+ extern void loongarch_after_parse_args (void);
+diff --git a/gas/testsuite/gas/loongarch/relax-align2.d b/gas/testsuite/gas/loongarch/relax-align2.d
+new file mode 100644
+index 00000000..cbef84f8
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax-align2.d
+@@ -0,0 +1,24 @@
++#as: --no-warn
++#readelf: -rsW
++#skip: loongarch32-*-*
++
++Relocation section '\.rela\.text' at offset .* contains 2 entries:
++.*
++0+04[ 	]+0000000000000066[ 	]+R_LARCH_ALIGN[ 	]+c
++0+14[ 	]+0000000500000066[ 	]+R_LARCH_ALIGN[ 	]+0+[ 	]+\.Lla-relax-align \+ 404
++
++Relocation section '\.rela\.text2' at offset .* contains 2 entries:
++.*
++0+04[ 	]+0000000000000066[ 	]+R_LARCH_ALIGN[ 	]+c
++0+14[ 	]+0000000600000066[ 	]+R_LARCH_ALIGN[ 	]+0+[ 	]+\.Lla-relax-align \+ 404
++
++Symbol table '\.symtab' contains .* entries:
++#...
++[ 	]+.*:[ 	]+0+[ 	]+0[ 	]+SECTION[ 	]+LOCAL[ 	]+DEFAULT[ 	]+1[ 	]+\.text
++#...
++[ 	]+.*:[ 	]+0+[ 	]+0[ 	]+SECTION[ 	]+LOCAL[ 	]+DEFAULT[ 	]+5[ 	]+\.text2
++#...
++[ 	]+.*:[ 	]+0+[ 	]+0[ 	]+NOTYPE[ 	]+LOCAL[ 	]+DEFAULT[ 	]+1[ 	]+\.Lla-relax-align
++#...
++[ 	]+.*:[ 	]+0+[ 	]+0[ 	]+NOTYPE[ 	]+LOCAL[ 	]+DEFAULT[ 	]+5[ 	]+\.Lla-relax-align
++#pass
+diff --git a/gas/testsuite/gas/loongarch/relax-align2.s b/gas/testsuite/gas/loongarch/relax-align2.s
+new file mode 100644
+index 00000000..6cd6bd87
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax-align2.s
+@@ -0,0 +1,11 @@
++.section ".text", "ax"
++nop
++.align 4
++nop
++.align 4, , 4
++
++.section ".text2", "ax"
++nop
++.align 4
++nop
++.align 4, , 4
+diff --git a/gas/testsuite/gas/loongarch/relax_align.d b/gas/testsuite/gas/loongarch/relax_align.d
+index acd215a4..fc1fd032 100644
+--- a/gas/testsuite/gas/loongarch/relax_align.d
++++ b/gas/testsuite/gas/loongarch/relax_align.d
+@@ -7,7 +7,7 @@
+ 
+ Disassembly of section .text:
+ 
+-[ 	]*0000000000000000 <.text>:
++[ 	]*0000000000000000 <.Lla-relax-align>:
+ [ 	]+0:[ 	]+4c000020[ 	]+ret
+ [ 	]+4:[ 	]+03400000[ 	]+nop
+ [ 	]+4: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
+@@ -20,12 +20,12 @@ Disassembly of section .text:
+ [ 	]+1c:[ 	]+03400000[ 	]+nop
+ [ 	]+20:[ 	]+4c000020[ 	]+ret
+ [ 	]+24:[ 	]+03400000[ 	]+nop
+-[ 	]+24: R_LARCH_ALIGN[ 	]+.text\+0x104
++[ 	]+24: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0x104
+ [ 	]+28:[ 	]+03400000[ 	]+nop
+ [ 	]+2c:[ 	]+03400000[ 	]+nop
+ [ 	]+30:[ 	]+4c000020[ 	]+ret
+ [ 	]+34:[ 	]+03400000[ 	]+nop
+-[ 	]+34: R_LARCH_ALIGN[ 	]+.text\+0xb04
++[ 	]+34: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0xb04
+ [ 	]+38:[ 	]+03400000[ 	]+nop
+ [ 	]+3c:[ 	]+03400000[ 	]+nop
+ [ 	]+40:[ 	]+4c000020[ 	]+ret
+-- 
+2.33.0
+

@@ -1,0 +1,654 @@
+From 1ced47506592c7724be57101d70254e826e833d1 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 10 Jan 2024 16:17:50 +0800
+Subject: [PATCH 066/123] LoongArch: Add gas testsuit for LA32 int/float
+ instructions
+
+Test the int/float instructions of LA32.
+---
+ gas/testsuite/gas/loongarch/insn_float32.d | 157 +++++++++++++++++++++
+ gas/testsuite/gas/loongarch/insn_float32.s | 149 +++++++++++++++++++
+ gas/testsuite/gas/loongarch/insn_int32.d   | 147 +++++++++++++++++++
+ gas/testsuite/gas/loongarch/insn_int32.s   | 156 ++++++++++++++++++++
+ 4 files changed, 609 insertions(+)
+ create mode 100644 gas/testsuite/gas/loongarch/insn_float32.d
+ create mode 100644 gas/testsuite/gas/loongarch/insn_float32.s
+ create mode 100644 gas/testsuite/gas/loongarch/insn_int32.d
+ create mode 100644 gas/testsuite/gas/loongarch/insn_int32.s
+
+diff --git a/gas/testsuite/gas/loongarch/insn_float32.d b/gas/testsuite/gas/loongarch/insn_float32.d
+new file mode 100644
+index 00000000..ee2408af
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_float32.d
+@@ -0,0 +1,157 @@
++#as-new:
++#objdump: -d
++#skip: loongarch64-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	01008820 	fadd.s      	\$fa0, \$fa1, \$fa2
++   4:	01010820 	fadd.d      	\$fa0, \$fa1, \$fa2
++   8:	01028820 	fsub.s      	\$fa0, \$fa1, \$fa2
++   c:	01030820 	fsub.d      	\$fa0, \$fa1, \$fa2
++  10:	01048820 	fmul.s      	\$fa0, \$fa1, \$fa2
++  14:	01050820 	fmul.d      	\$fa0, \$fa1, \$fa2
++  18:	01068820 	fdiv.s      	\$fa0, \$fa1, \$fa2
++  1c:	01070820 	fdiv.d      	\$fa0, \$fa1, \$fa2
++  20:	01088820 	fmax.s      	\$fa0, \$fa1, \$fa2
++  24:	01090820 	fmax.d      	\$fa0, \$fa1, \$fa2
++  28:	010a8820 	fmin.s      	\$fa0, \$fa1, \$fa2
++  2c:	010b0820 	fmin.d      	\$fa0, \$fa1, \$fa2
++  30:	010c8820 	fmaxa.s     	\$fa0, \$fa1, \$fa2
++  34:	010d0820 	fmaxa.d     	\$fa0, \$fa1, \$fa2
++  38:	010e8820 	fmina.s     	\$fa0, \$fa1, \$fa2
++  3c:	010f0820 	fmina.d     	\$fa0, \$fa1, \$fa2
++  40:	01108820 	fscaleb.s   	\$fa0, \$fa1, \$fa2
++  44:	01110820 	fscaleb.d   	\$fa0, \$fa1, \$fa2
++  48:	01128820 	fcopysign.s 	\$fa0, \$fa1, \$fa2
++  4c:	01130820 	fcopysign.d 	\$fa0, \$fa1, \$fa2
++  50:	01140420 	fabs.s      	\$fa0, \$fa1
++  54:	01140820 	fabs.d      	\$fa0, \$fa1
++  58:	01141420 	fneg.s      	\$fa0, \$fa1
++  5c:	01141820 	fneg.d      	\$fa0, \$fa1
++  60:	01142420 	flogb.s     	\$fa0, \$fa1
++  64:	01142820 	flogb.d     	\$fa0, \$fa1
++  68:	01143420 	fclass.s    	\$fa0, \$fa1
++  6c:	01143820 	fclass.d    	\$fa0, \$fa1
++  70:	01144420 	fsqrt.s     	\$fa0, \$fa1
++  74:	01144820 	fsqrt.d     	\$fa0, \$fa1
++  78:	01145420 	frecip.s    	\$fa0, \$fa1
++  7c:	01145820 	frecip.d    	\$fa0, \$fa1
++  80:	01146420 	frsqrt.s    	\$fa0, \$fa1
++  84:	01146820 	frsqrt.d    	\$fa0, \$fa1
++  88:	01149420 	fmov.s      	\$fa0, \$fa1
++  8c:	01149820 	fmov.d      	\$fa0, \$fa1
++  90:	0114a4a0 	movgr2fr.w  	\$fa0, \$a1
++  94:	0114a8a0 	movgr2fr.d  	\$fa0, \$a1
++  98:	0114aca0 	movgr2frh.w 	\$fa0, \$a1
++  9c:	0114b424 	movfr2gr.s  	\$a0, \$fa1
++  a0:	0114b824 	movfr2gr.d  	\$a0, \$fa1
++  a4:	0114bc24 	movfrh2gr.s 	\$a0, \$fa1
++  a8:	0114c0a0 	movgr2fcsr  	\$fcsr0, \$a1
++  ac:	0114c804 	movfcsr2gr  	\$a0, \$fcsr0
++  b0:	0114d020 	movfr2cf    	\$fcc0, \$fa1
++  b4:	0114d4a0 	movcf2fr    	\$fa0, \$fcc5
++  b8:	0114d8a0 	movgr2cf    	\$fcc0, \$a1
++  bc:	0114dca4 	movcf2gr    	\$a0, \$fcc5
++  c0:	01191820 	fcvt.s.d    	\$fa0, \$fa1
++  c4:	01192420 	fcvt.d.s    	\$fa0, \$fa1
++  c8:	011a0420 	ftintrm.w.s 	\$fa0, \$fa1
++  cc:	011a0820 	ftintrm.w.d 	\$fa0, \$fa1
++  d0:	011a2420 	ftintrm.l.s 	\$fa0, \$fa1
++  d4:	011a2820 	ftintrm.l.d 	\$fa0, \$fa1
++  d8:	011a4420 	ftintrp.w.s 	\$fa0, \$fa1
++  dc:	011a4820 	ftintrp.w.d 	\$fa0, \$fa1
++  e0:	011a6420 	ftintrp.l.s 	\$fa0, \$fa1
++  e4:	011a6820 	ftintrp.l.d 	\$fa0, \$fa1
++  e8:	011a8420 	ftintrz.w.s 	\$fa0, \$fa1
++  ec:	011a8820 	ftintrz.w.d 	\$fa0, \$fa1
++  f0:	011aa420 	ftintrz.l.s 	\$fa0, \$fa1
++  f4:	011aa820 	ftintrz.l.d 	\$fa0, \$fa1
++  f8:	011ac420 	ftintrne.w.s	\$fa0, \$fa1
++  fc:	011ac820 	ftintrne.w.d	\$fa0, \$fa1
++ 100:	011ae420 	ftintrne.l.s	\$fa0, \$fa1
++ 104:	011ae820 	ftintrne.l.d	\$fa0, \$fa1
++ 108:	011b0420 	ftint.w.s   	\$fa0, \$fa1
++ 10c:	011b0820 	ftint.w.d   	\$fa0, \$fa1
++ 110:	011b2420 	ftint.l.s   	\$fa0, \$fa1
++ 114:	011b2820 	ftint.l.d   	\$fa0, \$fa1
++ 118:	011d1020 	ffint.s.w   	\$fa0, \$fa1
++ 11c:	011d1820 	ffint.s.l   	\$fa0, \$fa1
++ 120:	011d2020 	ffint.d.w   	\$fa0, \$fa1
++ 124:	011d2820 	ffint.d.l   	\$fa0, \$fa1
++ 128:	011e4420 	frint.s     	\$fa0, \$fa1
++ 12c:	011e4820 	frint.d     	\$fa0, \$fa1
++ 130:	01147420 	frecipe.s   	\$fa0, \$fa1
++ 134:	01147820 	frecipe.d   	\$fa0, \$fa1
++ 138:	01148420 	frsqrte.s   	\$fa0, \$fa1
++ 13c:	01148820 	frsqrte.d   	\$fa0, \$fa1
++ 140:	08118820 	fmadd.s     	\$fa0, \$fa1, \$fa2, \$fa3
++ 144:	08218820 	fmadd.d     	\$fa0, \$fa1, \$fa2, \$fa3
++ 148:	08518820 	fmsub.s     	\$fa0, \$fa1, \$fa2, \$fa3
++ 14c:	08618820 	fmsub.d     	\$fa0, \$fa1, \$fa2, \$fa3
++ 150:	08918820 	fnmadd.s    	\$fa0, \$fa1, \$fa2, \$fa3
++ 154:	08a18820 	fnmadd.d    	\$fa0, \$fa1, \$fa2, \$fa3
++ 158:	08d18820 	fnmsub.s    	\$fa0, \$fa1, \$fa2, \$fa3
++ 15c:	08e18820 	fnmsub.d    	\$fa0, \$fa1, \$fa2, \$fa3
++ 160:	0c100820 	fcmp.caf.s  	\$fcc0, \$fa1, \$fa2
++ 164:	0c108820 	fcmp.saf.s  	\$fcc0, \$fa1, \$fa2
++ 168:	0c110820 	fcmp.clt.s  	\$fcc0, \$fa1, \$fa2
++ 16c:	0c118820 	fcmp.slt.s  	\$fcc0, \$fa1, \$fa2
++ 170:	0c118820 	fcmp.slt.s  	\$fcc0, \$fa1, \$fa2
++ 174:	0c120820 	fcmp.ceq.s  	\$fcc0, \$fa1, \$fa2
++ 178:	0c128820 	fcmp.seq.s  	\$fcc0, \$fa1, \$fa2
++ 17c:	0c130820 	fcmp.cle.s  	\$fcc0, \$fa1, \$fa2
++ 180:	0c138820 	fcmp.sle.s  	\$fcc0, \$fa1, \$fa2
++ 184:	0c138820 	fcmp.sle.s  	\$fcc0, \$fa1, \$fa2
++ 188:	0c140820 	fcmp.cun.s  	\$fcc0, \$fa1, \$fa2
++ 18c:	0c148820 	fcmp.sun.s  	\$fcc0, \$fa1, \$fa2
++ 190:	0c150820 	fcmp.cult.s 	\$fcc0, \$fa1, \$fa2
++ 194:	0c150820 	fcmp.cult.s 	\$fcc0, \$fa1, \$fa2
++ 198:	0c158820 	fcmp.sult.s 	\$fcc0, \$fa1, \$fa2
++ 19c:	0c160820 	fcmp.cueq.s 	\$fcc0, \$fa1, \$fa2
++ 1a0:	0c168820 	fcmp.sueq.s 	\$fcc0, \$fa1, \$fa2
++ 1a4:	0c170820 	fcmp.cule.s 	\$fcc0, \$fa1, \$fa2
++ 1a8:	0c170820 	fcmp.cule.s 	\$fcc0, \$fa1, \$fa2
++ 1ac:	0c178820 	fcmp.sule.s 	\$fcc0, \$fa1, \$fa2
++ 1b0:	0c180820 	fcmp.cne.s  	\$fcc0, \$fa1, \$fa2
++ 1b4:	0c188820 	fcmp.sne.s  	\$fcc0, \$fa1, \$fa2
++ 1b8:	0c1a0820 	fcmp.cor.s  	\$fcc0, \$fa1, \$fa2
++ 1bc:	0c1a8820 	fcmp.sor.s  	\$fcc0, \$fa1, \$fa2
++ 1c0:	0c1c0820 	fcmp.cune.s 	\$fcc0, \$fa1, \$fa2
++ 1c4:	0c1c8820 	fcmp.sune.s 	\$fcc0, \$fa1, \$fa2
++ 1c8:	0c200820 	fcmp.caf.d  	\$fcc0, \$fa1, \$fa2
++ 1cc:	0c208820 	fcmp.saf.d  	\$fcc0, \$fa1, \$fa2
++ 1d0:	0c210820 	fcmp.clt.d  	\$fcc0, \$fa1, \$fa2
++ 1d4:	0c218820 	fcmp.slt.d  	\$fcc0, \$fa1, \$fa2
++ 1d8:	0c218820 	fcmp.slt.d  	\$fcc0, \$fa1, \$fa2
++ 1dc:	0c220820 	fcmp.ceq.d  	\$fcc0, \$fa1, \$fa2
++ 1e0:	0c228820 	fcmp.seq.d  	\$fcc0, \$fa1, \$fa2
++ 1e4:	0c230820 	fcmp.cle.d  	\$fcc0, \$fa1, \$fa2
++ 1e8:	0c238820 	fcmp.sle.d  	\$fcc0, \$fa1, \$fa2
++ 1ec:	0c238820 	fcmp.sle.d  	\$fcc0, \$fa1, \$fa2
++ 1f0:	0c240820 	fcmp.cun.d  	\$fcc0, \$fa1, \$fa2
++ 1f4:	0c248820 	fcmp.sun.d  	\$fcc0, \$fa1, \$fa2
++ 1f8:	0c250820 	fcmp.cult.d 	\$fcc0, \$fa1, \$fa2
++ 1fc:	0c250820 	fcmp.cult.d 	\$fcc0, \$fa1, \$fa2
++ 200:	0c258820 	fcmp.sult.d 	\$fcc0, \$fa1, \$fa2
++ 204:	0c260820 	fcmp.cueq.d 	\$fcc0, \$fa1, \$fa2
++ 208:	0c268820 	fcmp.sueq.d 	\$fcc0, \$fa1, \$fa2
++ 20c:	0c270820 	fcmp.cule.d 	\$fcc0, \$fa1, \$fa2
++ 210:	0c270820 	fcmp.cule.d 	\$fcc0, \$fa1, \$fa2
++ 214:	0c278820 	fcmp.sule.d 	\$fcc0, \$fa1, \$fa2
++ 218:	0c280820 	fcmp.cne.d  	\$fcc0, \$fa1, \$fa2
++ 21c:	0c288820 	fcmp.sne.d  	\$fcc0, \$fa1, \$fa2
++ 220:	0c2a0820 	fcmp.cor.d  	\$fcc0, \$fa1, \$fa2
++ 224:	0c2a8820 	fcmp.sor.d  	\$fcc0, \$fa1, \$fa2
++ 228:	0c2c0820 	fcmp.cune.d 	\$fcc0, \$fa1, \$fa2
++ 22c:	0c2c8820 	fcmp.sune.d 	\$fcc0, \$fa1, \$fa2
++ 230:	0d000820 	fsel        	\$fa0, \$fa1, \$fa2, \$fcc0
++ 234:	2b00058a 	fld.s       	\$ft2, \$t0, 1
++ 238:	2b40058a 	fst.s       	\$ft2, \$t0, 1
++ 23c:	2b80058a 	fld.d       	\$ft2, \$t0, 1
++ 240:	2bc0058a 	fst.d       	\$ft2, \$t0, 1
++ 244:	48000000 	bceqz       	\$fcc0, 0	# 0x244
++ 248:	48000100 	bcnez       	\$fcc0, 0	# 0x248
+diff --git a/gas/testsuite/gas/loongarch/insn_float32.s b/gas/testsuite/gas/loongarch/insn_float32.s
+new file mode 100644
+index 00000000..8465633b
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_float32.s
+@@ -0,0 +1,149 @@
++fadd.s  $f0,$f1,$f2
++fadd.d  $f0,$f1,$f2
++fsub.s  $f0,$f1,$f2
++fsub.d  $f0,$f1,$f2
++fmul.s  $f0,$f1,$f2
++fmul.d  $f0,$f1,$f2
++fdiv.s  $f0,$f1,$f2
++fdiv.d  $f0,$f1,$f2
++fmax.s  $f0,$f1,$f2
++fmax.d  $f0,$f1,$f2
++fmin.s  $f0,$f1,$f2
++fmin.d  $f0,$f1,$f2
++fmaxa.s  $f0,$f1,$f2
++fmaxa.d  $f0,$f1,$f2
++fmina.s  $f0,$f1,$f2
++fmina.d  $f0,$f1,$f2
++fscaleb.s  $f0,$f1,$f2
++fscaleb.d  $f0,$f1,$f2
++fcopysign.s  $f0,$f1,$f2
++fcopysign.d  $f0,$f1,$f2
++fabs.s  $f0,$f1
++fabs.d  $f0,$f1
++fneg.s  $f0,$f1
++fneg.d  $f0,$f1
++flogb.s  $f0,$f1
++flogb.d  $f0,$f1
++fclass.s  $f0,$f1
++fclass.d  $f0,$f1
++fsqrt.s  $f0,$f1
++fsqrt.d  $f0,$f1
++frecip.s  $f0,$f1
++frecip.d  $f0,$f1
++frsqrt.s  $f0,$f1
++frsqrt.d  $f0,$f1
++fmov.s  $f0,$f1
++fmov.d  $f0,$f1
++movgr2fr.w  $f0,$r5
++movgr2fr.d  $f0,$r5
++movgr2frh.w  $f0,$r5
++movfr2gr.s  $r4,$f1
++movfr2gr.d  $r4,$f1
++movfrh2gr.s  $r4,$f1
++movgr2fcsr  $fcsr0,$r5
++movfcsr2gr  $r4,$fcsr0
++movfr2cf  $fcc0,$f1
++movcf2fr  $f0,$fcc5
++movgr2cf  $fcc0,$r5
++movcf2gr  $r4,$fcc5
++fcvt.s.d  $f0,$f1
++fcvt.d.s  $f0,$f1
++ftintrm.w.s  $f0,$f1
++ftintrm.w.d  $f0,$f1
++ftintrm.l.s  $f0,$f1
++ftintrm.l.d  $f0,$f1
++ftintrp.w.s  $f0,$f1
++ftintrp.w.d  $f0,$f1
++ftintrp.l.s  $f0,$f1
++ftintrp.l.d  $f0,$f1
++ftintrz.w.s  $f0,$f1
++ftintrz.w.d  $f0,$f1
++ftintrz.l.s  $f0,$f1
++ftintrz.l.d  $f0,$f1
++ftintrne.w.s  $f0,$f1
++ftintrne.w.d  $f0,$f1
++ftintrne.l.s  $f0,$f1
++ftintrne.l.d  $f0,$f1
++ftint.w.s  $f0,$f1
++ftint.w.d  $f0,$f1
++ftint.l.s  $f0,$f1
++ftint.l.d  $f0,$f1
++ffint.s.w  $f0,$f1
++ffint.s.l  $f0,$f1
++ffint.d.w  $f0,$f1
++ffint.d.l  $f0,$f1
++frint.s  $f0,$f1
++frint.d  $f0,$f1
++frecipe.s  $f0,$f1
++frecipe.d  $f0,$f1
++frsqrte.s  $f0,$f1
++frsqrte.d  $f0,$f1
++
++# 4_opt_op
++fmadd.s  $f0,$f1,$f2,$f3
++fmadd.d  $f0,$f1,$f2,$f3
++fmsub.s  $f0,$f1,$f2,$f3
++fmsub.d  $f0,$f1,$f2,$f3
++fnmadd.s  $f0,$f1,$f2,$f3
++fnmadd.d  $f0,$f1,$f2,$f3
++fnmsub.s  $f0,$f1,$f2,$f3
++fnmsub.d  $f0,$f1,$f2,$f3
++fcmp.caf.s  $fcc0,$f1,$f2
++fcmp.saf.s  $fcc0,$f1,$f2
++fcmp.clt.s  $fcc0,$f1,$f2
++fcmp.slt.s  $fcc0,$f1,$f2
++fcmp.sgt.s  $fcc0,$f2,$f1
++fcmp.ceq.s  $fcc0,$f1,$f2
++fcmp.seq.s  $fcc0,$f1,$f2
++fcmp.cle.s  $fcc0,$f1,$f2
++fcmp.sle.s  $fcc0,$f1,$f2
++fcmp.sge.s  $fcc0,$f2,$f1
++fcmp.cun.s  $fcc0,$f1,$f2
++fcmp.sun.s  $fcc0,$f1,$f2
++fcmp.cult.s  $fcc0,$f1,$f2
++fcmp.cugt.s  $fcc0,$f2,$f1
++fcmp.sult.s  $fcc0,$f1,$f2
++fcmp.cueq.s  $fcc0,$f1,$f2
++fcmp.sueq.s  $fcc0,$f1,$f2
++fcmp.cule.s  $fcc0,$f1,$f2
++fcmp.cuge.s  $fcc0,$f2,$f1
++fcmp.sule.s  $fcc0,$f1,$f2
++fcmp.cne.s  $fcc0,$f1,$f2
++fcmp.sne.s  $fcc0,$f1,$f2
++fcmp.cor.s  $fcc0,$f1,$f2
++fcmp.sor.s  $fcc0,$f1,$f2
++fcmp.cune.s  $fcc0,$f1,$f2
++fcmp.sune.s  $fcc0,$f1,$f2
++fcmp.caf.d  $fcc0,$f1,$f2
++fcmp.saf.d  $fcc0,$f1,$f2
++fcmp.clt.d  $fcc0,$f1,$f2
++fcmp.slt.d  $fcc0,$f1,$f2
++fcmp.sgt.d  $fcc0,$f2,$f1
++fcmp.ceq.d  $fcc0,$f1,$f2
++fcmp.seq.d  $fcc0,$f1,$f2
++fcmp.cle.d  $fcc0,$f1,$f2
++fcmp.sle.d  $fcc0,$f1,$f2
++fcmp.sge.d  $fcc0,$f2,$f1
++fcmp.cun.d  $fcc0,$f1,$f2
++fcmp.sun.d  $fcc0,$f1,$f2
++fcmp.cult.d  $fcc0,$f1,$f2
++fcmp.cugt.d  $fcc0,$f2,$f1
++fcmp.sult.d  $fcc0,$f1,$f2
++fcmp.cueq.d  $fcc0,$f1,$f2
++fcmp.sueq.d  $fcc0,$f1,$f2
++fcmp.cule.d  $fcc0,$f1,$f2
++fcmp.cuge.d  $fcc0,$f2,$f1
++fcmp.sule.d  $fcc0,$f1,$f2
++fcmp.cne.d  $fcc0,$f1,$f2
++fcmp.sne.d  $fcc0,$f1,$f2
++fcmp.cor.d  $fcc0,$f1,$f2
++fcmp.sor.d  $fcc0,$f1,$f2
++fcmp.cune.d  $fcc0,$f1,$f2
++fcmp.sune.d  $fcc0,$f1,$f2
++fsel  $f0,$f1,$f2,$fcc0
++fld.s $f10,$r12,1
++fst.s $f10,$r12,1
++fld.d $f10,$r12,1
++fst.d $f10,$r12,1
++bceqz  $fcc0,.L1
++bcnez  $fcc0,.L1
+diff --git a/gas/testsuite/gas/loongarch/insn_int32.d b/gas/testsuite/gas/loongarch/insn_int32.d
+new file mode 100644
+index 00000000..d90dbe40
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_int32.d
+@@ -0,0 +1,147 @@
++#as-new:
++#objdump: -d -M no-aliases
++#skip: loongarch64-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	020000a4 	slti        	\$a0, \$a1, 0
++   4:	021ffca4 	slti        	\$a0, \$a1, 2047
++   8:	022004a4 	slti        	\$a0, \$a1, -2047
++   c:	024000a4 	sltui       	\$a0, \$a1, 0
++  10:	025ffca4 	sltui       	\$a0, \$a1, 2047
++  14:	026004a4 	sltui       	\$a0, \$a1, -2047
++  18:	028000a4 	addi.w      	\$a0, \$a1, 0
++  1c:	029ffca4 	addi.w      	\$a0, \$a1, 2047
++  20:	02a004a4 	addi.w      	\$a0, \$a1, -2047
++  24:	034000a4 	andi        	\$a0, \$a1, 0x0
++  28:	035ffca4 	andi        	\$a0, \$a1, 0x7ff
++  2c:	038000a4 	ori         	\$a0, \$a1, 0x0
++  30:	039ffca4 	ori         	\$a0, \$a1, 0x7ff
++  34:	03c000a4 	xori        	\$a0, \$a1, 0x0
++  38:	03dffca4 	xori        	\$a0, \$a1, 0x7ff
++  3c:	14000004 	lu12i.w     	\$a0, 0
++  40:	14ffffe4 	lu12i.w     	\$a0, 524287
++  44:	1c000004 	pcaddu12i   	\$a0, 0
++  48:	1cffffe4 	pcaddu12i   	\$a0, 524287
++  4c:	1d000024 	pcaddu12i   	\$a0, -524287
++  50:	0004b58b 	alsl.w      	\$a7, \$t0, \$t1, 0x2
++  54:	0006b58b 	alsl.wu     	\$a7, \$t0, \$t1, 0x2
++  58:	002a0002 	break       	0x2
++  5c:	002a8002 	dbcl        	0x2
++  60:	002b0002 	syscall     	0x2
++  64:	0040898b 	slli.w      	\$a7, \$t0, 0x2
++  68:	0044898b 	srli.w      	\$a7, \$t0, 0x2
++  6c:	004889ac 	srai.w      	\$t0, \$t1, 0x2
++  70:	02048dac 	slti        	\$t0, \$t1, 291
++  74:	02448dac 	sltui       	\$t0, \$t1, 291
++  78:	02848dac 	addi.w      	\$t0, \$t1, 291
++  7c:	034009ac 	andi        	\$t0, \$t1, 0x2
++  80:	038009ac 	ori         	\$t0, \$t1, 0x2
++  84:	03c009ac 	xori        	\$t0, \$t1, 0x2
++  88:	1400246c 	lu12i.w     	\$t0, 291
++  8c:	1c00246c 	pcaddu12i   	\$t0, 291
++  90:	04048c0c 	csrrd       	\$t0, 0x123
++  94:	04048c2c 	csrwr       	\$t0, 0x123
++  98:	040009ac 	csrxchg     	\$t0, \$t1, 0x2
++  9c:	060009a2 	cacop       	0x2, \$t1, 2
++  a0:	064009ac 	lddir       	\$t0, \$t1, 0x2
++  a4:	06440980 	ldpte       	\$t0, 0x2
++  a8:	0649b9a2 	invtlb      	0x2, \$t1, \$t2
++  ac:	000060a4 	rdtimel.w   	\$a0, \$a1
++  b0:	000064a4 	rdtimeh.w   	\$a0, \$a1
++  b4:	000418a4 	alsl.w      	\$a0, \$a1, \$a2, 0x1
++  b8:	000598a4 	alsl.w      	\$a0, \$a1, \$a2, 0x4
++  bc:	000618a4 	alsl.wu     	\$a0, \$a1, \$a2, 0x1
++  c0:	000798a4 	alsl.wu     	\$a0, \$a1, \$a2, 0x4
++  c4:	001018a4 	add.w       	\$a0, \$a1, \$a2
++  c8:	001118a4 	sub.w       	\$a0, \$a1, \$a2
++  cc:	001218a4 	slt         	\$a0, \$a1, \$a2
++  d0:	001298a4 	sltu        	\$a0, \$a1, \$a2
++  d4:	001418a4 	nor         	\$a0, \$a1, \$a2
++  d8:	001498a4 	and         	\$a0, \$a1, \$a2
++  dc:	001518a4 	or          	\$a0, \$a1, \$a2
++  e0:	001598a4 	xor         	\$a0, \$a1, \$a2
++  e4:	001718a4 	sll.w       	\$a0, \$a1, \$a2
++  e8:	001798a4 	srl.w       	\$a0, \$a1, \$a2
++  ec:	001818a4 	sra.w       	\$a0, \$a1, \$a2
++  f0:	001c18a4 	mul.w       	\$a0, \$a1, \$a2
++  f4:	001c98a4 	mulh.w      	\$a0, \$a1, \$a2
++  f8:	001d18a4 	mulh.wu     	\$a0, \$a1, \$a2
++  fc:	002018a4 	div.w       	\$a0, \$a1, \$a2
++ 100:	002098a4 	mod.w       	\$a0, \$a1, \$a2
++ 104:	002118a4 	div.wu      	\$a0, \$a1, \$a2
++ 108:	002198a4 	mod.wu      	\$a0, \$a1, \$a2
++ 10c:	002a0000 	break       	0x0
++ 110:	002a7fff 	break       	0x7fff
++ 114:	002a8000 	dbcl        	0x0
++ 118:	002affff 	dbcl        	0x7fff
++ 11c:	004080a4 	slli.w      	\$a0, \$a1, 0x0
++ 120:	004084a4 	slli.w      	\$a0, \$a1, 0x1
++ 124:	0040fca4 	slli.w      	\$a0, \$a1, 0x1f
++ 128:	004480a4 	srli.w      	\$a0, \$a1, 0x0
++ 12c:	004484a4 	srli.w      	\$a0, \$a1, 0x1
++ 130:	0044fca4 	srli.w      	\$a0, \$a1, 0x1f
++ 134:	004880a4 	srai.w      	\$a0, \$a1, 0x0
++ 138:	004884a4 	srai.w      	\$a0, \$a1, 0x1
++ 13c:	0048fca4 	srai.w      	\$a0, \$a1, 0x1f
++ 140:	200000a4 	ll.w        	\$a0, \$a1, 0
++ 144:	203ffca4 	ll.w        	\$a0, \$a1, 16380
++ 148:	210000a4 	sc.w        	\$a0, \$a1, 0
++ 14c:	213ffca4 	sc.w        	\$a0, \$a1, 16380
++ 150:	280000a4 	ld.b        	\$a0, \$a1, 0
++ 154:	281ffca4 	ld.b        	\$a0, \$a1, 2047
++ 158:	282004a4 	ld.b        	\$a0, \$a1, -2047
++ 15c:	284000a4 	ld.h        	\$a0, \$a1, 0
++ 160:	285ffca4 	ld.h        	\$a0, \$a1, 2047
++ 164:	286004a4 	ld.h        	\$a0, \$a1, -2047
++ 168:	288000a4 	ld.w        	\$a0, \$a1, 0
++ 16c:	289ffca4 	ld.w        	\$a0, \$a1, 2047
++ 170:	28a004a4 	ld.w        	\$a0, \$a1, -2047
++ 174:	290000a4 	st.b        	\$a0, \$a1, 0
++ 178:	291ffca4 	st.b        	\$a0, \$a1, 2047
++ 17c:	292004a4 	st.b        	\$a0, \$a1, -2047
++ 180:	294000a4 	st.h        	\$a0, \$a1, 0
++ 184:	295ffca4 	st.h        	\$a0, \$a1, 2047
++ 188:	296004a4 	st.h        	\$a0, \$a1, -2047
++ 18c:	298000a4 	st.w        	\$a0, \$a1, 0
++ 190:	299ffca4 	st.w        	\$a0, \$a1, 2047
++ 194:	29a004a4 	st.w        	\$a0, \$a1, -2047
++ 198:	2a0000a4 	ld.bu       	\$a0, \$a1, 0
++ 19c:	2a1ffca4 	ld.bu       	\$a0, \$a1, 2047
++ 1a0:	2a2004a4 	ld.bu       	\$a0, \$a1, -2047
++ 1a4:	2a4000a4 	ld.hu       	\$a0, \$a1, 0
++ 1a8:	2a5ffca4 	ld.hu       	\$a0, \$a1, 2047
++ 1ac:	2a6004a4 	ld.hu       	\$a0, \$a1, -2047
++ 1b0:	2ac000a0 	preld       	0x0, \$a1, 0
++ 1b4:	2adffcbf 	preld       	0x1f, \$a1, 2047
++ 1b8:	2ae004bf 	preld       	0x1f, \$a1, -2047
++ 1bc:	385714c4 	sc.q        	\$a0, \$a1, \$a2
++ 1c0:	385714c4 	sc.q        	\$a0, \$a1, \$a2
++ 1c4:	385780a4 	llacq.w     	\$a0, \$a1
++ 1c8:	385780a4 	llacq.w     	\$a0, \$a1
++ 1cc:	385784a4 	screl.w     	\$a0, \$a1
++ 1d0:	385784a4 	screl.w     	\$a0, \$a1
++ 1d4:	38720000 	dbar        	0x0
++ 1d8:	38727fff 	dbar        	0x7fff
++ 1dc:	38728000 	ibar        	0x0
++ 1e0:	3872ffff 	ibar        	0x7fff
++
++0+1e4 <.L1>:
++ 1e4:	03400000 	andi        	\$zero, \$zero, 0x0
++ 1e8:	53ffffff 	b           	-4	# 1e4 <.L1>
++ 1ec:	57fffbff 	bl          	-8	# 1e4 <.L1>
++ 1f0:	5bfff485 	beq         	\$a0, \$a1, -12	# 1e4 <.L1>
++ 1f4:	5ffff085 	bne         	\$a0, \$a1, -16	# 1e4 <.L1>
++ 1f8:	63ffec85 	blt         	\$a0, \$a1, -20	# 1e4 <.L1>
++ 1fc:	63ffe8a4 	blt         	\$a1, \$a0, -24	# 1e4 <.L1>
++ 200:	67ffe485 	bge         	\$a0, \$a1, -28	# 1e4 <.L1>
++ 204:	67ffe0a4 	bge         	\$a1, \$a0, -32	# 1e4 <.L1>
++ 208:	6bffdc85 	bltu        	\$a0, \$a1, -36	# 1e4 <.L1>
++ 20c:	6bffd8a4 	bltu        	\$a1, \$a0, -40	# 1e4 <.L1>
++ 210:	6fffd485 	bgeu        	\$a0, \$a1, -44	# 1e4 <.L1>
++ 214:	6fffd0a4 	bgeu        	\$a1, \$a0, -48	# 1e4 <.L1>
++ 218:	4c000080 	jirl        	\$zero, \$a0, 0
+diff --git a/gas/testsuite/gas/loongarch/insn_int32.s b/gas/testsuite/gas/loongarch/insn_int32.s
+new file mode 100644
+index 00000000..4889df1f
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_int32.s
+@@ -0,0 +1,156 @@
++# imm_op
++slti  $r4,$r5,0
++slti  $r4,$r5,0x7ff
++slti  $r4,$r5,-0x7ff
++sltui  $r4,$r5,0
++sltui  $r4,$r5,0x7ff
++sltui  $r4,$r5,-0x7ff
++addi.w  $r4,$r5,0
++addi.w  $r4,$r5,0x7ff
++addi.w  $r4,$r5,-0x7ff
++andi  $r4,$r5,0
++andi  $r4,$r5,0x7ff
++ori  $r4,$r5,0
++ori  $r4,$r5,0x7ff
++xori  $r4,$r5,0
++xori  $r4,$r5,0x7ff
++lu12i.w  $r4,0
++lu12i.w  $r4,0x7ffff
++pcaddu12i  $r4,0
++pcaddu12i  $r4,0x7ffff
++pcaddu12i  $r4,-0x7ffff
++
++# imm_ins
++.equ a, 0x123
++.equ b, 0xfffff00000
++.equ c, 0xfffffffffff
++.equ d, 2
++.equ e,0x100
++
++alsl.w $r11,$r12,$r13,d
++alsl.wu $r11,$r12,$r13,d
++
++break d
++dbcl d
++syscall d
++
++slli.w $r11,$r12,d
++srli.w $r11,$r12,d
++srai.w $r12,$r13,d
++
++slti $r12,$r13,a
++sltui $r12,$r13,a
++addi.w $r12,$r13,a
++andi $r12,$r13,d
++ori  $r12,$r13,d
++xori $r12,$r13,d
++lu12i.w $r12,a
++pcaddu12i $r12,a
++
++csrrd $r12,a
++csrwr $r12,a
++csrxchg $r12,$r13,d
++cacop d,$r13,d
++lddir $r12,$r13,d
++ldpte $r12,d
++
++invtlb d,$r13,$r14
++
++# fix_op
++rdtimel.w  $r4,$r5
++rdtimeh.w  $r4,$r5
++alsl.w  $r4,$r5,$r6,1
++alsl.w  $r4,$r5,$r6,4
++alsl.wu  $r4,$r5,$r6,1
++alsl.wu  $r4,$r5,$r6,4
++add.w  $r4,$r5,$r6
++sub.w  $r4,$r5,$r6
++slt  $r4,$r5,$r6
++sltu  $r4,$r5,$r6
++nor  $r4,$r5,$r6
++and  $r4,$r5,$r6
++or  $r4,$r5,$r6
++xor  $r4,$r5,$r6
++
++# load_store
++sll.w  $r4,$r5,$r6
++srl.w  $r4,$r5,$r6
++sra.w  $r4,$r5,$r6
++mul.w  $r4,$r5,$r6
++mulh.w  $r4,$r5,$r6
++mulh.wu  $r4,$r5,$r6
++div.w  $r4,$r5,$r6
++mod.w  $r4,$r5,$r6
++div.wu  $r4,$r5,$r6
++mod.wu  $r4,$r5,$r6
++break  0
++break  0x7fff
++dbcl   0
++dbcl   0x7fff
++slli.w  $r4,$r5,0
++slli.w  $r4,$r5,1
++slli.w  $r4,$r5,0x1f
++srli.w  $r4,$r5,0
++srli.w  $r4,$r5,1
++srli.w  $r4,$r5,0x1f
++srai.w  $r4,$r5,0
++srai.w  $r4,$r5,1
++srai.w  $r4,$r5,0x1f
++ll.w  $r4,$r5,0
++ll.w  $r4,$r5,0x3ffc
++sc.w  $r4,$r5,0
++sc.w  $r4,$r5,0x3ffc
++ld.b  $r4,$r5,0
++ld.b  $r4,$r5,0x7ff
++ld.b  $r4,$r5,-0x7ff
++ld.h  $r4,$r5,0
++ld.h  $r4,$r5,0x7ff
++ld.h  $r4,$r5,-0x7ff
++ld.w  $r4,$r5,0
++ld.w  $r4,$r5,0x7ff
++ld.w  $r4,$r5,-0x7ff
++st.b  $r4,$r5,0
++st.b  $r4,$r5,0x7ff
++st.b  $r4,$r5,-0x7ff
++st.h  $r4,$r5,0
++st.h  $r4,$r5,0x7ff
++st.h  $r4,$r5,-0x7ff
++st.w  $r4,$r5,0
++st.w  $r4,$r5,0x7ff
++st.w  $r4,$r5,-0x7ff
++ld.bu  $r4,$r5,0
++ld.bu  $r4,$r5,0x7ff
++ld.bu  $r4,$r5,-0x7ff
++ld.hu  $r4,$r5,0
++ld.hu  $r4,$r5,0x7ff
++ld.hu  $r4,$r5,-0x7ff
++preld  0,$r5,0
++preld  31,$r5,0x7ff
++preld  31,$r5,-0x7ff
++sc.q  $r4,$r5,$r6,0
++sc.q  $r4,$r5,$r6
++llacq.w  $r4,$r5,0
++llacq.w  $r4,$r5
++screl.w  $r4,$r5,0
++screl.w  $r4,$r5
++dbar  0
++dbar  0x7fff
++ibar  0
++ibar  0x7fff
++
++# jmp_op
++.L1:
++nop
++b  .L1
++bl  .L1
++beq $r4,$r5,.L1
++bne $r4,$r5,.L1
++blt $r4,$r5,.L1
++bgt $r4,$r5,.L1
++bge $r4,$r5,.L1
++ble $r4,$r5,.L1
++bltu  $r4,$r5,.L1
++bgtu  $r4,$r5,.L1
++bgeu  $r4,$r5,.L1
++bleu  $r4,$r5,.L1
++jirl  $zero,$r4,0
+-- 
+2.33.0
+

@@ -1,0 +1,316 @@
+From 5b5553b3a8d81b48b5b6829165173fe158c3fe8f Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Sun, 7 Apr 2024 16:34:42 +0800
+Subject: [PATCH 080/123] LoongArch: Add -mignore-start-align option
+
+Ignore .align at the start of a section may result in misalignment when
+partial linking. Manually add -mignore-start-align option without partial
+linking.
+
+Gcc -falign-functions add .align 5 to the start of a section, it causes some
+error message mismatch. Set these testcases to xfail on LoongArch target.
+---
+ gas/config/tc-loongarch.c                     | 70 +++++++++++++------
+ ...ign-first.d => relax-align-ignore-start.d} |  2 +-
+ ...ign-first.s => relax-align-ignore-start.s} |  0
+ include/opcode/loongarch.h                    |  1 +
+ ld/testsuite/ld-elf/dwarf.exp                 |  5 ++
+ .../ld-loongarch-elf/partial-link-align-a.s   |  2 +
+ .../ld-loongarch-elf/partial-link-align-b.s   |  3 +
+ ...ign-first.d => relax-align-ignore-start.d} |  1 +
+ ...ign-first.s => relax-align-ignore-start.s} |  0
+ ld/testsuite/ld-loongarch-elf/relax.exp       | 32 ++++++++-
+ ld/testsuite/ld-undefined/undefined.exp       |  2 +
+ 11 files changed, 95 insertions(+), 23 deletions(-)
+ rename gas/testsuite/gas/loongarch/{relax-align-first.d => relax-align-ignore-start.d} (87%)
+ rename gas/testsuite/gas/loongarch/{relax-align-first.s => relax-align-ignore-start.s} (100%)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/partial-link-align-a.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/partial-link-align-b.s
+ rename ld/testsuite/ld-loongarch-elf/{relax-align-first.d => relax-align-ignore-start.d} (92%)
+ rename ld/testsuite/ld-loongarch-elf/{relax-align-first.s => relax-align-ignore-start.s} (100%)
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 110b92e4..f030fd07 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -139,15 +139,17 @@ enum options
+ 
+   OPTION_ABI,
+   OPTION_FLOAT_ABI,
+-
+   OPTION_FLOAT_ISA,
+ 
+   OPTION_LA_LOCAL_WITH_ABS,
+   OPTION_LA_GLOBAL_WITH_PCREL,
+   OPTION_LA_GLOBAL_WITH_ABS,
++
+   OPTION_RELAX,
+   OPTION_NO_RELAX,
++
+   OPTION_THIN_ADD_SUB,
++  OPTION_IGNORE_START_ALIGN,
+ 
+   OPTION_END_OF_ENUM,
+ };
+@@ -165,6 +167,7 @@ struct option md_longopts[] =
+   { "mrelax", no_argument, NULL, OPTION_RELAX },
+   { "mno-relax", no_argument, NULL, OPTION_NO_RELAX },
+   { "mthin-add-sub", no_argument, NULL, OPTION_THIN_ADD_SUB},
++  { "mignore-start-align", no_argument, NULL, OPTION_IGNORE_START_ALIGN},
+ 
+   { NULL, no_argument, NULL, 0 }
+ };
+@@ -247,6 +250,10 @@ md_parse_option (int c, const char *arg)
+       LARCH_opts.thin_add_sub = 1;
+       break;
+ 
++    case OPTION_IGNORE_START_ALIGN:
++      LARCH_opts.ignore_start_align = 1;
++      break;
++
+     case OPTION_IGNORE:
+       break;
+ 
+@@ -1772,7 +1779,9 @@ md_show_usage (FILE *stream)
+   -mthin-add-sub	  Convert a pair of R_LARCH_ADD32/64 and R_LARCH_SUB32/64 to\n\
+ 			  R_LARCH_32/64_PCREL as much as possible\n\
+ 			  The option does not affect the generation of R_LARCH_32_PCREL\n\
+-			  relocations in .eh_frame\n"));
++			  relocations in .eh_frame\n\
++  -mignore-start-align	  Ignore .align if it is at the start of a section. This option\n\
++			  can't be used when partial linking (ld -r).\n"));
+ }
+ 
+ static void
+@@ -1794,39 +1803,60 @@ bool
+ loongarch_frag_align_code (int n, int max)
+ {
+   char *nops;
++  expressionS ex;
+   symbolS *s = NULL;
+ 
+-  bfd_vma insn_alignment = 4;
+-  bfd_vma bytes = (bfd_vma) 1 << n;
+-  bfd_vma worst_case_bytes = bytes - insn_alignment;
++  /* When not relaxing, loongarch_handle_align handles code alignment.  */
++  if (!LARCH_opts.relax)
++    return false;
++
++  bfd_vma align_bytes = (bfd_vma) 1 << n;
++  bfd_vma worst_case_bytes = align_bytes - 4;
++  bfd_vma addend = worst_case_bytes;
++  bool align_max = max > 0 && (bfd_vma) max < worst_case_bytes;
+ 
+   /* If we are moving to a smaller alignment than the instruction size, then no
+      alignment is required.  */
+-  if (bytes <= insn_alignment)
++  if (align_bytes <= 4)
+     return true;
+ 
+-  /* When not relaxing, loongarch_handle_align handles code alignment.  */
+-  if (!LARCH_opts.relax)
+-    return false;
+-
+   /* If max <= 0, ignore max.
+      If max >= worst_case_bytes, max has no effect.
+      Similar to gas/write.c relax_segment function rs_align_code case:
+      if (fragP->fr_subtype != 0 && offset > fragP->fr_subtype).  */
+-  if (max > 0 && (bfd_vma) max < worst_case_bytes)
++  if (align_max)
+     {
+       s = symbol_find (now_seg->name);
+-      worst_case_bytes = ALIGN_MAX_ADDEND (n, max);
++      addend = ALIGN_MAX_ADDEND (n, max);
++    }
++
++  if (LARCH_opts.ignore_start_align)
++    {
++      frag_grow (worst_case_bytes);
++      /* Use relaxable frag for .align.
++	 If .align at the start of section, do nothing. Section alignment can
++	 ensure correct alignment.
++	 If .align is not at the start of a section, reserve NOP instructions
++	 and R_LARCH_ALIGN relocation.  */
++      nops = frag_var (rs_machine_dependent, worst_case_bytes, worst_case_bytes,
++		       rs_align_code, s, addend, NULL);
+     }
++  else
++    {
++      nops = frag_more (worst_case_bytes);
++      if (align_max)
++	{
++	  ex.X_add_symbol = s;
++	  ex.X_op = O_symbol;
++	}
++      else
++	  ex.X_op = O_constant;
++
++      ex.X_add_number = addend;
+ 
+-  frag_grow (worst_case_bytes);
+-  /* Use relaxable frag for .align.
+-     If .align at the start of section, do nothing. Section alignment can
+-     ensure correct alignment.
+-     If .align is not at the start of a section, reserve NOP instructions
+-     and R_LARCH_ALIGN relocation.  */
+-  nops = frag_var (rs_machine_dependent, worst_case_bytes, worst_case_bytes,
+-		   rs_align_code, s, worst_case_bytes, NULL);
++      fix_new_exp (frag_now, nops - frag_now->fr_literal, 0,
++		   &ex, false, BFD_RELOC_LARCH_ALIGN);
++    }
+ 
+   /* Default write NOP for aligned bytes.  */
+   loongarch_make_nops (nops, worst_case_bytes);
+diff --git a/gas/testsuite/gas/loongarch/relax-align-first.d b/gas/testsuite/gas/loongarch/relax-align-ignore-start.d
+similarity index 87%
+rename from gas/testsuite/gas/loongarch/relax-align-first.d
+rename to gas/testsuite/gas/loongarch/relax-align-ignore-start.d
+index ec0698b6..0a67392d 100644
+--- a/gas/testsuite/gas/loongarch/relax-align-first.d
++++ b/gas/testsuite/gas/loongarch/relax-align-ignore-start.d
+@@ -1,4 +1,4 @@
+-#as:
++#as: -mignore-start-align
+ #objdump: -dr
+ 
+ .*:[    ]+file format .*
+diff --git a/gas/testsuite/gas/loongarch/relax-align-first.s b/gas/testsuite/gas/loongarch/relax-align-ignore-start.s
+similarity index 100%
+rename from gas/testsuite/gas/loongarch/relax-align-first.s
+rename to gas/testsuite/gas/loongarch/relax-align-ignore-start.s
+diff --git a/include/opcode/loongarch.h b/include/opcode/loongarch.h
+index 5fc6e190..024ba99c 100644
+--- a/include/opcode/loongarch.h
++++ b/include/opcode/loongarch.h
+@@ -256,6 +256,7 @@ dec2 : [1-9][0-9]?
+ 
+     int relax;
+     int thin_add_sub;
++    int ignore_start_align;
+   } LARCH_opts;
+ 
+   extern size_t loongarch_insn_length (insn_t insn);
+diff --git a/ld/testsuite/ld-elf/dwarf.exp b/ld/testsuite/ld-elf/dwarf.exp
+index 3d1b99ac..5cb2aab9 100644
+--- a/ld/testsuite/ld-elf/dwarf.exp
++++ b/ld/testsuite/ld-elf/dwarf.exp
+@@ -52,6 +52,9 @@ set build_tests {
+   {"DWARF parse during linker error"
+    "" "-fno-toplevel-reorder"
+    {dwarf2a.c dwarf2b.c} {{error_output "dwarf2.err"}} "dwarf2.x"}
++}
++
++set build_tests_dwarf3 {
+   {"Handle no DWARF information"
+    "" "-g0"
+    {dwarf3.c} {{error_output "dwarf3.err"}} "dwarf3.x"}
+@@ -72,6 +75,8 @@ set run_tests {
+ set old_CFLAGS "$CFLAGS_FOR_TARGET"
+ append CFLAGS_FOR_TARGET " $NOSANITIZE_CFLAGS"
+ run_cc_link_tests $build_tests
++setup_xfail loongarch*-*-*
++run_cc_link_tests $build_tests_dwarf3
+ run_ld_link_exec_tests $run_tests
+ set CFLAGS_FOR_TARGET "$old_CFLAGS"
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/partial-link-align-a.s b/ld/testsuite/ld-loongarch-elf/partial-link-align-a.s
+new file mode 100644
+index 00000000..a8b4f295
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/partial-link-align-a.s
+@@ -0,0 +1,2 @@
++.text
++la.local $t0, .text
+diff --git a/ld/testsuite/ld-loongarch-elf/partial-link-align-b.s b/ld/testsuite/ld-loongarch-elf/partial-link-align-b.s
+new file mode 100644
+index 00000000..46fa058b
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/partial-link-align-b.s
+@@ -0,0 +1,3 @@
++.text
++.align 4
++ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align-first.d b/ld/testsuite/ld-loongarch-elf/relax-align-ignore-start.d
+similarity index 92%
+rename from ld/testsuite/ld-loongarch-elf/relax-align-first.d
+rename to ld/testsuite/ld-loongarch-elf/relax-align-ignore-start.d
+index 9a4fad8e..939cf427 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax-align-first.d
++++ b/ld/testsuite/ld-loongarch-elf/relax-align-ignore-start.d
+@@ -1,3 +1,4 @@
++#as: -mignore-start-align
+ #ld: -e0
+ #objdump: -d
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align-first.s b/ld/testsuite/ld-loongarch-elf/relax-align-ignore-start.s
+similarity index 100%
+rename from ld/testsuite/ld-loongarch-elf/relax-align-first.s
+rename to ld/testsuite/ld-loongarch-elf/relax-align-ignore-start.s
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index 7274218f..bfd6d1c0 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -19,10 +19,38 @@
+ # MA 02110-1301, USA.
+ #
+ 
+-if [istarget loongarch64-*-*] {
+-  run_dump_test "relax-align-first"
++proc run_partial_linking_align_test {} {
++  global as
++  global ld
++  global srcdir
++  global subdir
++  global runtests
++
++  set testname "partial-link-align"
++  if ![runtest_file_p $runtests $testname] then {
++    return
++  }
+ 
++  if { ![ld_assemble $as "$srcdir/$subdir/$testname-a.s" tmpdir/a.o]
++      || ![ld_assemble $as "$srcdir/$subdir/$testname-b.s" tmpdir/b.o]
++      || ![ld_link $ld tmpdir/$testname.os "tmpdir/a.o tmpdir/b.o -r"]
++      || ![ld_link $ld tmpdir/$testname "tmpdir/$testname.os -e0 -Ttext 0x1000"] } {
++    fail $testname
++  } else {
++    set objdump_output [run_host_cmd "objdump" "-d tmpdir/$testname"]
++    if { [ regexp ".*1010:\\s*4c000020\\s*jirl.*" $objdump_output ] } {
++      pass $testname
++    } else {
++      fail $testname
++    }
++  }
++}
++
++if [istarget loongarch64-*-*] {
+   if [isbuild loongarch64-*-*] {
++    run_dump_test "relax-align-ignore-start"
++    run_partial_linking_align_test
++
+     set testname "loongarch relax .exe build"
+     set pre_builds [list \
+       [list \
+diff --git a/ld/testsuite/ld-undefined/undefined.exp b/ld/testsuite/ld-undefined/undefined.exp
+index c0479a22..97bdd92d 100644
+--- a/ld/testsuite/ld-undefined/undefined.exp
++++ b/ld/testsuite/ld-undefined/undefined.exp
+@@ -74,6 +74,7 @@ if { ![check_compiler_available] } {
+     # in a literal pool outside the function, so that both the
+     # "undefined function" and "undefined line" tests fail.
+     setup_xfail xtensa*-*-linux*
++    setup_xfail loongarch*-*-*
+ 
+     set mf "tmpdir/undefined.o* in function `function':"
+     checkund $mf $testfn
+@@ -154,6 +155,7 @@ if { ![check_compiler_available] } {
+ 
+     # eBPF doesn't support dwarf yet.
+     setup_xfail bpf-*-*
++    setup_xfail loongarch*-*-*
+ 
+     checkund $ml $testline
+ }
+-- 
+2.33.0
+

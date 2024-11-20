@@ -1,0 +1,29 @@
+From 765057030817ea3083dd7a7ca607c89d21d4eed3 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Tue, 23 Apr 2024 15:49:09 +0800
+Subject: [PATCH 085/123] LoongArch: Fix ld test failures caused by using
+ instruction aliases
+
+Different versions of objdump may take different forms of output
+for instructions. Use -M no-aliases to avoid the failure of ld
+test cases caused by objdump using aliases.
+---
+ ld/testsuite/ld-loongarch-elf/relax.exp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index bfd6d1c0..c1da9c10 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -37,7 +37,7 @@ proc run_partial_linking_align_test {} {
+       || ![ld_link $ld tmpdir/$testname "tmpdir/$testname.os -e0 -Ttext 0x1000"] } {
+     fail $testname
+   } else {
+-    set objdump_output [run_host_cmd "objdump" "-d tmpdir/$testname"]
++    set objdump_output [run_host_cmd "objdump" "-d -M no-aliases tmpdir/$testname"]
+     if { [ regexp ".*1010:\\s*4c000020\\s*jirl.*" $objdump_output ] } {
+       pass $testname
+     } else {
+-- 
+2.33.0
+

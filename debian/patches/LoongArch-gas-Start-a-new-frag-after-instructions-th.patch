@@ -1,0 +1,143 @@
+From 04b665b402affb89a5b077516bc306da11af1e84 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 18 Jan 2024 19:03:11 +0800
+Subject: [PATCH 051/123] LoongArch: gas: Start a new frag after instructions
+ that can be relaxed
+
+For R_LARCH_TLS_{LE_HI20_R,LE_ADD_R,LD_PC_HI20,GD_PC_HI20, DESC_PC_HI20}
+relocations, start a new frag to get correct eh_frame Call Frame Information
+FDE DW_CFA_advance_loc info.
+---
+ gas/config/tc-loongarch.c                     | 19 ++++++--
+ .../relax-cfi-fde-DW_CFA_advance_loc.d        | 46 +++++++++++++++++++
+ .../relax-cfi-fde-DW_CFA_advance_loc.s        | 33 +++++++++++++
+ 3 files changed, 93 insertions(+), 5 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d
+ create mode 100644 gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 49470073..5b7f5137 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -1070,13 +1070,22 @@ append_fixp_and_insn (struct loongarch_cl_insn *ip)
+      optimized away or compressed by the linker during relaxation, to prevent
+      the assembler from computing static offsets across such an instruction.
+ 
+-     This is necessary to get correct .eh_frame cfa info. If one cfa's two
+-     symbol is not in the same frag, it will generate relocs to calculate
+-     symbol subtraction. (gas/dw2gencfi.c:output_cfi_insn:
+-     if (symbol_get_frag (to) == symbol_get_frag (from)))  */
++     This is necessary to get correct .eh_frame FDE DW_CFA_advance_loc info.
++     If one cfi_insn_data's two symbols are not in the same frag, it will
++     generate ADD and SUB relocations pairs to calculate DW_CFA_advance_loc.
++     (gas/dw2gencfi.c: output_cfi_insn:
++     if (symbol_get_frag (to) == symbol_get_frag (from)))
++
++     For macro instructions, only the first instruction expanded from macro
++     need to start a new frag.  */
+   if (LARCH_opts.relax
+       && (BFD_RELOC_LARCH_PCALA_HI20 == reloc_info[0].type
+-	  || BFD_RELOC_LARCH_GOT_PC_HI20 == reloc_info[0].type))
++	  || BFD_RELOC_LARCH_GOT_PC_HI20 == reloc_info[0].type
++	  || BFD_RELOC_LARCH_TLS_LE_HI20_R == reloc_info[0].type
++	  || BFD_RELOC_LARCH_TLS_LE_ADD_R == reloc_info[0].type
++	  || BFD_RELOC_LARCH_TLS_LD_PC_HI20 == reloc_info[0].type
++	  || BFD_RELOC_LARCH_TLS_GD_PC_HI20 == reloc_info[0].type
++	  || BFD_RELOC_LARCH_TLS_DESC_PC_HI20 == reloc_info[0].type))
+     {
+       frag_wane (frag_now);
+       frag_new (0);
+diff --git a/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d
+new file mode 100644
+index 00000000..367039e1
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d
+@@ -0,0 +1,46 @@
++#as: -mrelax
++#objdump: -Dr -j .eh_frame
++#skip: loongarch32-*-*
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .eh_frame:
++
++[ 	]*0000000000000000 <.eh_frame>:
++[ 	]+0:[ 	]+00000014[ 	]+.word[ 	]+[ 	]+0x00000014
++[ 	]+4:[ 	]+00000000[ 	]+.word[ 	]+[ 	]+0x00000000
++[ 	]+8:[ 	]+00527a01[ 	]+.word[ 	]+[ 	]+0x00527a01
++[ 	]+c:[ 	]+01017c01[ 	]+fadd.d[ 	]+\$fa1, \$fa0, \$fs7
++[ 	]+10:[ 	]+0c030d1b[ 	]+.word[ 	]+[ 	]+0x0c030d1b
++[ 	]+14:[ 	]+00000016[ 	]+.word[ 	]+[ 	]+0x00000016
++[ 	]+18:[ 	]+00000034[ 	]+.word[ 	]+[ 	]+0x00000034
++[ 	]+1c:[ 	]+0000001c[ 	]+.word[ 	]+[ 	]+0x0000001c
++[ 	]+...
++[ 	]+20: R_LARCH_32_PCREL[ 	]+L0\^A
++[ 	]+24: R_LARCH_ADD32[ 	]+L0\^A
++[ 	]+24: R_LARCH_SUB32[ 	]+L0\^A
++[ 	]+28:[ 	]+0cd64000[ 	]+.word[ 	]+[ 	]+0x0cd64000
++[ 	]+29: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+29: R_LARCH_SUB6[ 	]+L0\^A
++[ 	]+2c:[ 	]+d6400016[ 	]+.word[ 	]+[ 	]+0xd6400016
++[ 	]+2e: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+2e: R_LARCH_SUB6[ 	]+L0\^A
++[ 	]+30:[ 	]+4000160c[ 	]+beqz[ 	]+\$t4, 3145748[ 	]+# 300044 <L0\^A\+0x30000c>
++[ 	]+33: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+33: R_LARCH_SUB6[ 	]+L0\^A
++[ 	]+34:[ 	]+00160cd6[ 	]+orn[ 	]+\$fp, \$a2, \$sp
++[ 	]+38:[ 	]+160cd640[ 	]+lu32i.d[ 	]+\$zero, 26290
++[ 	]+38: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+38: R_LARCH_SUB6[ 	]+L0\^A
++[ 	]+3c:[ 	]+0cd64000[ 	]+.word[ 	]+[ 	]+0x0cd64000
++[ 	]+3d: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+3d: R_LARCH_SUB6[ 	]+L0\^A
++[ 	]+40:[ 	]+d6400016[ 	]+.word[ 	]+[ 	]+0xd6400016
++[ 	]+42: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+42: R_LARCH_SUB6[ 	]+L0\^A
++[ 	]+44:[ 	]+4000160c[ 	]+beqz[ 	]+\$t4, 3145748[ 	]+# 300058 <L0\^A\+0x300020>
++[ 	]+47: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+47: R_LARCH_SUB6[ 	]+L0\^A
++[ 	]+48:[ 	]+000000d6[ 	]+.word[ 	]+[ 	]+0x000000d6
++[ 	]+4c:[ 	]+00000000[ 	]+.word[ 	]+[ 	]+0x00000000
+diff --git a/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s
+new file mode 100644
+index 00000000..6e4c9b8b
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s
+@@ -0,0 +1,33 @@
++# Emits ADD/SUB relocations for CFA FDE DW_CFA_advance_loc with -mrelax option.
++.text
++.cfi_startproc
++
++.cfi_def_cfa 22, 0
++la.local $t0, a
++.cfi_restore 22
++
++.cfi_def_cfa 22, 0
++la.got $t0, a
++.cfi_restore 22
++
++.cfi_def_cfa 22, 0
++la.tls.ld $t0, a
++.cfi_restore 22
++
++.cfi_def_cfa 22, 0
++la.tls.gd $t0, a
++.cfi_restore 22
++
++.cfi_def_cfa 22, 0
++la.tls.desc $t0, a
++.cfi_restore 22
++
++.cfi_def_cfa 22, 0
++pcalau12i $t0, %le_hi20_r(a)
++.cfi_restore 22
++
++.cfi_def_cfa 22, 0
++add.d $t0, $tp, $t0, %le_add_r(a)
++.cfi_restore 22
++
++.cfi_endproc
+-- 
+2.33.0
+

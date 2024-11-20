@@ -1,0 +1,68 @@
+From 47494a014c00dfa3832441171255018be62ac756 Mon Sep 17 00:00:00 2001
+From: Jinyang He <hejinyang@loongson.cn>
+Date: Mon, 22 Apr 2024 17:49:50 +0800
+Subject: [PATCH 083/123] LoongArch: gas: Simplify relocations in sections
+ without code flag
+
+Gas should not emit ADD/SUB relocation pairs for label differences
+if they are in the same section without code flag even relax enabled.
+Because the real value is not be affected by relaxation and it can be
+compute out in assembly stage. Thus, correct the `TC_FORCE_RELOCATION
+_SUB_SAME` and the label differences in same section without code
+flag can be resolved in fixup_segment().
+---
+ gas/config/tc-loongarch.h                      |  4 +---
+ gas/testsuite/gas/loongarch/relax_debug_line.d | 12 ++++++++++++
+ gas/testsuite/gas/loongarch/relax_debug_line.s |  6 ++++++
+ 3 files changed, 19 insertions(+), 3 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/relax_debug_line.d
+ create mode 100644 gas/testsuite/gas/loongarch/relax_debug_line.s
+
+diff --git a/gas/config/tc-loongarch.h b/gas/config/tc-loongarch.h
+index 194ee107..0b5cdfe6 100644
+--- a/gas/config/tc-loongarch.h
++++ b/gas/config/tc-loongarch.h
+@@ -91,9 +91,7 @@ extern bool loongarch_frag_align_code (int, int);
+ #define TC_FORCE_RELOCATION_SUB_SAME(FIX, SEC)	\
+   (LARCH_opts.relax ?  \
+     (GENERIC_FORCE_RELOCATION_SUB_SAME (FIX, SEC)	\
+-      || ((SEC)->flags & SEC_CODE) != 0		\
+-      || ((SEC)->flags & SEC_DEBUGGING) != 0	\
+-      || TC_FORCE_RELOCATION (FIX)) \
++      || ((SEC)->flags & SEC_CODE) != 0)		\
+     : (GENERIC_FORCE_RELOCATION_SUB_SAME (FIX, SEC))) \
+ 
+ #define TC_LINKRELAX_FIXUP(seg) ((seg->flags & SEC_CODE)  \
+diff --git a/gas/testsuite/gas/loongarch/relax_debug_line.d b/gas/testsuite/gas/loongarch/relax_debug_line.d
+new file mode 100644
+index 00000000..c17813c2
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax_debug_line.d
+@@ -0,0 +1,12 @@
++#as: --gdwarf-5
++#readelf: -r --wide
++#skip: loongarch32-*-*
++
++Relocation section '\.rela\.debug_line' at offset .* contains 5 entries:
++#...
++0+22.*R_LARCH_32[ \t]+[0-9]+.*
++0+2c.*R_LARCH_32[ \t]+[0-9]+.*
++0+36.*R_LARCH_64[ \t]+[0-9]+.*
++0+42.*R_LARCH_ADD16[ \t]+[0-9]+.*
++0+42.*R_LARCH_SUB16[ \t]+[0-9]+.*
++#pass
+diff --git a/gas/testsuite/gas/loongarch/relax_debug_line.s b/gas/testsuite/gas/loongarch/relax_debug_line.s
+new file mode 100644
+index 00000000..d2852bb9
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/relax_debug_line.s
+@@ -0,0 +1,6 @@
++  .file 0 "test"
++  .text
++  .loc 0 10 0
++  nop
++
++.section .debug_line, "", @progbits
+-- 
+2.33.0
+

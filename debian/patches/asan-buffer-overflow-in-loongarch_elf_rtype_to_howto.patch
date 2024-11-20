@@ -1,0 +1,110 @@
+From 4eb7459bdbdb37611f8d993171c5d72fa347a143 Mon Sep 17 00:00:00 2001
+From: Alan Modra <amodra@gmail.com>
+Date: Tue, 26 Dec 2023 22:46:56 +1030
+Subject: [PATCH 030/123] asan: buffer overflow in loongarch_elf_rtype_to_howto
+
+Seen when running ld-loongarch-elf/tlsdesc-dso test.
+elfxx-loongarch.c:1844:32: runtime error: index 125 out of bounds for
+type 'loongarch_reloc_howto_type [124]'
+
+So either the loongarch_howto_table needs three more
+LOONGARCH_EMPTY_HOWTO entries, or loongarch_elf_rtype_to_howto should
+be testing for r_type < ARRAY_SIZE (loongarch_howto_table).  I figure
+it's worth wasting a little more space to get faster lookup.
+
+	* elfxx-loongarch.c (loongarch_howto_table): Add
+	LOONGARCH_EMPTY_HOWTO entries for 121..123.
+	(loongarch_elf_rtype_to_howto): Don't support slow lookup.
+	Assert exact table size and r_type indexing.  Omit return cast.
+	(loongarch_reloc_name_lookup): Omit assertion and return cast.
+	(loongarch_reloc_type_lookup): Likewise.
+---
+ bfd/elfxx-loongarch.c | 32 +++++++++++---------------------
+ 1 file changed, 11 insertions(+), 21 deletions(-)
+
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index 310e6d62..4fe8cbff 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -1776,6 +1776,10 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 NULL,					/* adjust_reloc_bits.  */
+ 	 "desc_call"),				/* larch_reloc_type_name.  */
+ 
++  LOONGARCH_EMPTY_HOWTO (121),
++  LOONGARCH_EMPTY_HOWTO (122),
++  LOONGARCH_EMPTY_HOWTO (123),
++
+   /* For pcaddi, ld_pc_hi20 + ld_pc_lo12 can relax to ld_pcrel20_s2.  */
+   LOONGARCH_HOWTO (R_LARCH_TLS_LD_PCREL20_S2,	/* type (124).  */
+ 	 2,					/* rightshift.  */
+@@ -1834,19 +1838,11 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ reloc_howto_type *
+ loongarch_elf_rtype_to_howto (bfd *abfd, unsigned int r_type)
+ {
+-  if(r_type < R_LARCH_count)
++  if (r_type < R_LARCH_count)
+     {
+-      /* For search table fast.  */
+-      /*
+       BFD_ASSERT (ARRAY_SIZE (loongarch_howto_table) == R_LARCH_count);
+-      */
+-
+-      if (loongarch_howto_table[r_type].howto.type == r_type)
+-	return (reloc_howto_type *)&loongarch_howto_table[r_type];
+-
+-      for (size_t i = 0; i < ARRAY_SIZE (loongarch_howto_table); i++)
+-	if (loongarch_howto_table[i].howto.type == r_type)
+-	  return (reloc_howto_type *)&loongarch_howto_table[i];
++      BFD_ASSERT (loongarch_howto_table[r_type].howto.type == r_type);
++      return &loongarch_howto_table[r_type].howto;
+     }
+ 
+   (*_bfd_error_handler) (_("%pB: unsupported relocation type %#x"),
+@@ -1858,19 +1854,14 @@ loongarch_elf_rtype_to_howto (bfd *abfd, unsigned int r_type)
+ reloc_howto_type *
+ loongarch_reloc_name_lookup (bfd *abfd ATTRIBUTE_UNUSED, const char *r_name)
+ {
+-  /*
+-  BFD_ASSERT (ARRAY_SIZE (loongarch_howto_table) == R_LARCH_count);
+-  */
+-
+   for (size_t i = 0; i < ARRAY_SIZE (loongarch_howto_table); i++)
+     if (loongarch_howto_table[i].howto.name
+ 	&& strcasecmp (loongarch_howto_table[i].howto.name, r_name) == 0)
+-      return (reloc_howto_type *)&loongarch_howto_table[i];
++      return &loongarch_howto_table[i].howto;
+ 
+   (*_bfd_error_handler) (_("%pB: unsupported relocation type %s"),
+ 			 abfd, r_name);
+   bfd_set_error (bfd_error_bad_value);
+-
+   return NULL;
+ }
+ 
+@@ -1888,20 +1879,19 @@ loongarch_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
+     {
+       BFD_ASSERT (BFD_RELOC_LARCH_RELAX - BFD_RELOC_LARCH_B16
+ 		  == R_LARCH_RELAX - R_LARCH_B16);
+-      loongarch_reloc_howto_type *ht = NULL;
++      loongarch_reloc_howto_type *ht;
+       ht = &loongarch_howto_table[code - BFD_RELOC_LARCH_B16 + R_LARCH_B16];
+       BFD_ASSERT (ht->bfd_type == code);
+-      return (reloc_howto_type *)ht;
++      return &ht->howto;
+     }
+ 
+   for (size_t i = 0; i < ARRAY_SIZE (loongarch_howto_table); i++)
+     if (loongarch_howto_table[i].bfd_type == code)
+-      return (reloc_howto_type *)&loongarch_howto_table[i];
++      return &loongarch_howto_table[i].howto;
+ 
+   (*_bfd_error_handler) (_("%pB: unsupported bfd relocation type %#x"),
+ 			 abfd, code);
+   bfd_set_error (bfd_error_bad_value);
+-
+   return NULL;
+ }
+ 
+-- 
+2.33.0
+

@@ -1,0 +1,207 @@
+From 6be26e106b7a240afce3fa1d8f214ef90ee53bd1 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Thu, 17 Oct 2024 15:08:47 +0800
+Subject: [PATCH 118/123] LoongArch: Force relocation for every reference to
+ the global offset table
+
+Local absolute symbols are resolved at assembly stage and the symbol
+value is placed in the relocation addend. But non-zero addend will
+cause an assertion failure during linking.
+
+Forces emission of relocations to defer resolution of local abs symbols
+until link time.
+
+bfd/
+
+        * elfnn-loongarch.c (loongarch_elf_relax_section): Determine
+          absolute symbols in advance to avoid ld crash.
+
+gas/
+
+        * config/tc-loongarch.c (loongarch_force_relocation): New
+          function to force relocation.
+        * config/tc-loongarch.h (TC_FORCE_RELOCATION): New macros
+          to force relocation.
+        (loongarch_force_relocation): Function declaration.
+        * testsuite/gas/loongarch/localpic.d: New test.
+        * testsuite/gas/loongarch/localpic.s: New test.
+---
+ bfd/elfnn-loongarch.c                  | 16 ++++++++--------
+ gas/config/tc-loongarch.c              | 24 ++++++++++++++++++++++++
+ gas/config/tc-loongarch.h              |  3 +++
+ gas/testsuite/gas/loongarch/localpic.d | 22 ++++++++++++++++++++++
+ gas/testsuite/gas/loongarch/localpic.s | 26 ++++++++++++++++++++++++++
+ 5 files changed, 83 insertions(+), 8 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/localpic.d
+ create mode 100644 gas/testsuite/gas/loongarch/localpic.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 890233d1..8b9628f7 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -5328,7 +5328,6 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+       bfd_vma symval;
+       asection *sym_sec;
+       bool local_got = false;
+-      bool is_abs_symbol = false;
+       Elf_Internal_Rela *rel = relocs + i;
+       struct elf_link_hash_entry *h = NULL;
+       unsigned long r_type = ELFNN_R_TYPE (rel->r_info);
+@@ -5434,8 +5433,9 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  Elf_Internal_Sym *sym = (Elf_Internal_Sym *)symtab_hdr->contents
+ 				    + r_symndx;
+ 
+-	  if (ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC
+-	      && r_type != R_LARCH_CALL36)
++	  if ((ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC
++	       && r_type != R_LARCH_CALL36)
++	      || sym->st_shndx == SHN_ABS)
+ 	    continue;
+ 
+ 	  /* Only TLS instruction sequences that are accompanied by
+@@ -5464,12 +5464,13 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	      symval = sym->st_value;
+ 	    }
+ 	  symtype = ELF_ST_TYPE (sym->st_info);
+-	  is_abs_symbol = sym->st_shndx == SHN_ABS;
+ 	}
+       else
+ 	{
+-	  if (h != NULL && h->type == STT_GNU_IFUNC
+-	      && r_type != R_LARCH_CALL36)
++	  if (h != NULL
++	      && ((h->type == STT_GNU_IFUNC
++		   && r_type != R_LARCH_CALL36)
++		  || bfd_is_abs_section (h->root.u.def.section)))
+ 	    continue;
+ 
+ 	  /* The GOT entry of tls symbols must in current execute file or
+@@ -5511,7 +5512,6 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  else
+ 	    continue;
+ 
+-	  is_abs_symbol = bfd_is_abs_section (h->root.u.def.section);
+ 	  if (h && LARCH_REF_LOCAL (info, h))
+ 	    local_got = true;
+ 	  symtype = h->type;
+@@ -5544,7 +5544,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 
+       symval += sec_addr (sym_sec);
+ 
+-      if (r_type == R_LARCH_GOT_PC_HI20 && (!local_got || is_abs_symbol))
++      if (r_type == R_LARCH_GOT_PC_HI20 && !local_got)
+ 	continue;
+ 
+       if (relax_func (abfd, sec, sym_sec, rel, symval,
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 046e198f..7fa7fa0f 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -1456,6 +1456,30 @@ md_pcrel_from (fixS *fixP ATTRIBUTE_UNUSED)
+   return 0;
+ }
+ 
++/* Return 1 if the relocation must be forced, and 0 if the relocation
++   should never be forced.  */
++int
++loongarch_force_relocation (struct fix *fixp)
++{
++  /* Ensure we emit a relocation for every reference to the global
++     offset table.  */
++  switch (fixp->fx_r_type)
++    {
++      case BFD_RELOC_LARCH_GOT_PC_HI20:
++      case BFD_RELOC_LARCH_GOT_PC_LO12:
++      case BFD_RELOC_LARCH_GOT64_PC_LO20:
++      case BFD_RELOC_LARCH_GOT64_PC_HI12:
++      case BFD_RELOC_LARCH_GOT_HI20:
++      case BFD_RELOC_LARCH_GOT_LO12:
++      case BFD_RELOC_LARCH_GOT64_LO20:
++      case BFD_RELOC_LARCH_GOT64_HI12:
++	return 1;
++      default:
++	break;
++    }
++  return generic_force_reloc (fixp);
++}
++
+ static void fix_reloc_insn (fixS *fixP, bfd_vma reloc_val, char *buf)
+ {
+   reloc_howto_type *howto;
+diff --git a/gas/config/tc-loongarch.h b/gas/config/tc-loongarch.h
+index 2f081edf..da8b0547 100644
+--- a/gas/config/tc-loongarch.h
++++ b/gas/config/tc-loongarch.h
+@@ -74,6 +74,9 @@ extern bool loongarch_frag_align_code (int, int);
+    relaxation, so do not resolve such expressions in the assembler.  */
+ #define md_allow_local_subtract(l,r,s) 0
+ 
++#define TC_FORCE_RELOCATION(FIX) loongarch_force_relocation (FIX)
++extern int loongarch_force_relocation (struct fix *);
++
+ /* If subsy of BFD_RELOC32/64 and PC in same segment, and without relax
+    or PC at start of subsy or with relax but sub_symbol_segment not in
+    SEC_CODE, we generate 32/64_PCREL.  */
+diff --git a/gas/testsuite/gas/loongarch/localpic.d b/gas/testsuite/gas/loongarch/localpic.d
+new file mode 100644
+index 00000000..bea19578
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/localpic.d
+@@ -0,0 +1,22 @@
++#as:
++#readelf: -rWs
++#name: loongarch64 local PIC
++
++Relocation section '.rela.text' at offset 0x[0-9a-f]+ contains 12 entries:
++    Offset             Info             Type               Symbol's Value  Symbol's Name \+ Addend
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_PC_HI20    [0-9a-f]+ sym \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_PC_LO12    [0-9a-f]+ sym \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_PC_HI20    [0-9a-f]+ foo \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_PC_LO12    [0-9a-f]+ foo \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT64_PC_LO20  [0-9a-f]+ foo \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT64_PC_HI12  [0-9a-f]+ foo \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_HI20       [0-9a-f]+ foo \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_LO12       [0-9a-f]+ foo \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_HI20       [0-9a-f]+ sym \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT_LO12       [0-9a-f]+ sym \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT64_LO20     [0-9a-f]+ sym \+ 0
++[0-9a-f]+  [0-9a-f]+ R_LARCH_GOT64_HI12     [0-9a-f]+ sym \+ 0
++#...
++     +[0-9a-f]+: +[0-9a-f]+     0 NOTYPE  LOCAL  DEFAULT    +[0-9a-f]+ foo
++     +[0-9a-f]+: 0+abba     0 NOTYPE  LOCAL  DEFAULT  ABS sym
++#pass
+diff --git a/gas/testsuite/gas/loongarch/localpic.s b/gas/testsuite/gas/loongarch/localpic.s
+new file mode 100644
+index 00000000..55548e4b
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/localpic.s
+@@ -0,0 +1,26 @@
++.text
++foo:
++  .quad 0
++  # 32-bit PC-relative
++  pcalau12i $a0,%got_pc_hi20(sym)
++  ld.d	    $a0,$a0,%got_pc_lo12(sym)
++  # 64-bit PC-relative
++  pcalau12i $a0,%got_pc_hi20(foo)
++  addi.d    $a1,$zero,%got_pc_lo12(foo)
++  lu32i.d   $a1,%got64_pc_lo20(foo)
++  lu52i.d   $a1,$a1,%got64_pc_hi12(foo)
++  ldx.d	    $a0,$a0,$a1
++
++  # 32-bit absolute
++  lu12i.w   $a0,%got_hi20(foo)
++  ori	    $a0,$a0,%got_lo12(foo)
++  ld.w	    $a0,$a0,0
++
++  #64-bit absolute
++  lu12i.w   $a0,%got_hi20(sym)
++  ori	    $a0,$a0,%got_lo12(sym)
++  lu32i.d   $a0,%got64_lo20(sym)
++  lu52i.d   $a0,$a0,%got64_hi12(sym)
++  ld.d	    $a0,$a0,0
++
++.set sym,0xabba
+-- 
+2.33.0
+

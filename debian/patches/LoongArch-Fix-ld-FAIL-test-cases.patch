@@ -1,0 +1,91 @@
+From 32434338ecb0d5547e2cb7986f98040bc726f43f Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 17 Jul 2024 10:54:46 +0800
+Subject: [PATCH 104/123] LoongArch: Fix ld FAIL test cases
+
+To avoid differences in C library paths on different systems
+use gcc instead of ld to perform the test.
+
+Problems caused by adding options to different distributions
+will not be fixed.
+---
+ ld/testsuite/ld-loongarch-elf/pic.exp | 41 ++++++++++++++++-----------
+ 1 file changed, 24 insertions(+), 17 deletions(-)
+
+diff --git a/ld/testsuite/ld-loongarch-elf/pic.exp b/ld/testsuite/ld-loongarch-elf/pic.exp
+index 2ca5b3a0..241d198d 100644
+--- a/ld/testsuite/ld-loongarch-elf/pic.exp
++++ b/ld/testsuite/ld-loongarch-elf/pic.exp
+@@ -92,17 +92,6 @@ set link_tests [list \
+       ] \
+     "nopic-global" \
+   ] \
+-  [list \
+-    "$testname readelf -s/-r nopic-global-so" \
+-    "-L./tmpdir -lnopic-global -L/usr/lib -lc" "" \
+-    "" \
+-    {nopic-global.s} \
+-      [list \
+-	[list readelf -s nopic-global-so.sd] \
+-	[list readelf -r nopic-global-so.rd] \
+-      ] \
+-    "nopic-global-so" \
+-  ] \
+   [list \
+     "$testname readelf -s/-x nopic-weak-global" \
+     "-T pic.ld" "" \
+@@ -114,19 +103,35 @@ set link_tests [list \
+       ] \
+     "nopic-weak-global" \
+   ] \
++]
++
++# Since the c library path may be different in different
++# Distributions, the test program can link to the c library
++# using the gcc instead of ld to avoid system impact.
++run_ld_link_tests $link_tests
++
++
++
++set link_tests_libc [list \
++  [list \
++    "$testname readelf -s/-r nopic-global-so" \
++    "-L./tmpdir -lnopic-global -L/usr/lib -lc" "" \
++    {nopic-global.s} \
++    {{readelf {-s} nopic-global-so.sd} \
++     {readelf {-r} nopic-global-so.rd}} \
++    "nopic-global-so" \
++  ] \
+   [list \
+     "$testname readelf -s/-x nopic-weak-global-so" \
+     "-L./tmpdir -lnopic-global -L/usr/lib -lc" "" \
+-    "" \
+     {nopic-weak-global.s} \
+-      [list \
+-	[list readelf -s nopic-weak-global-so.sd] \
+-	[list readelf -r nopic-weak-global-so.rd] \
+-      ] \
++    {{readelf {-s} nopic-weak-global-so.sd} \
++     {readelf {-r} nopic-weak-global-so.rd}} \
+     "nopic-weak-global-so" \
+   ] \
+ ]
+ 
++
+ #  0:name
+ #  1:ld/ar leading options, placed before object files
+ #  2:ld/ar trailing options, placed after object files
+@@ -135,7 +140,9 @@ set link_tests [list \
+ #  5:list of actions, options and expected outputs.
+ #  6:name of output file
+ #  7:compiler flags (optional)
+-run_ld_link_tests $link_tests
++run_cc_link_tests $link_tests_libc
++
++
+ 
+ set testname "nopic link exec test"
+ 
+-- 
+2.33.0
+

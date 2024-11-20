@@ -1,0 +1,25 @@
+From 4744da32d9f3c4fb37f4ddf4019a514bbbbd5220 Mon Sep 17 00:00:00 2001
+From: caiyinyu <caiyinyu@loongson.cn>
+Date: Tue, 17 Oct 2023 20:58:40 +0800
+Subject: [PATCH 015/123] LoongArch: Correct comments.
+
+---
+ bfd/elfnn-loongarch.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 7dbe31eb..09c98713 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -2325,7 +2325,7 @@ loongarch_reloc_is_fatal (struct bfd_link_info *info,
+    addi.d $t0, $zero, lo12 (0x812)
+       $t0 = 0xfffffffffffff812 (if lo12 > 0x7ff, because sign-extend,
+       lo20 need to sub 0x1)
+-   lu32i.d $t0, lo12 (0x71234)
++   lu32i.d $t0, lo20 (0x71234)
+       $t0 = {0x71234, 0xfffff812}
+ 	  = 0x71234fffff812
+    lu52i.d $t0, hi12 (0x0)
+-- 
+2.33.0
+

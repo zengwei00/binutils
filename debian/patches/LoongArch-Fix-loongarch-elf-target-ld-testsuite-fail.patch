@@ -1,0 +1,206 @@
+From e86a0c83da7c0d80f02428d400538113f8294757 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 27 Dec 2023 17:10:41 +0800
+Subject: [PATCH 038/123] LoongArch: Fix loongarch*-elf target ld testsuite
+ failure
+
+The loongarch*-elf target does not support SHARED and PIE, so this
+target is skipped for some tests that require these options.
+---
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     | 30 +++---
+ .../ld-loongarch-elf/local-ifunc-reloc.d      |  1 +
+ ld/testsuite/ld-loongarch-elf/relax.exp       | 99 ++++++++++---------
+ 3 files changed, 71 insertions(+), 59 deletions(-)
+
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 2a5709a5..8dc04fea 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -43,19 +43,21 @@ if [istarget "loongarch32-*-*"] {
+ }
+ 
+ if [istarget "loongarch64-*-*"] {
+-  run_ld_link_tests \
+-      [list \
+-	  [list \
+-	      "64_pcrel" \
+-	      "-e 0x0 -z relro" "" \
+-	      "" \
+-	      {64_pcrel.s} \
+-	      [list \
+-		  [list objdump -D 64_pcrel.d] \
+-	      ] \
+-	      "64_pcrel" \
+-	  ] \
+-      ]
++  if [check_shared_lib_support] {
++    run_ld_link_tests \
++	[list \
++	    [list \
++		"64_pcrel" \
++		"-e 0x0 -z relro" "" \
++		"" \
++		{64_pcrel.s} \
++		[list \
++		    [list objdump -D 64_pcrel.d] \
++		] \
++		"64_pcrel" \
++	    ] \
++	]
++  }
+ 
+   run_ld_link_tests \
+       [list \
+@@ -71,10 +73,12 @@ if [istarget "loongarch64-*-*"] {
+ }
+ 
+ if [istarget "loongarch64-*-*"] {
++  if [check_shared_lib_support] {
+     run_dump_test "desc-ie"
+     run_dump_test "desc-le"
+     run_dump_test "ie-le"
+     run_dump_test "tlsdesc-dso"
+     run_dump_test "desc-norelax"
+     run_dump_test "desc-relax"
++  }
+ }
+diff --git a/ld/testsuite/ld-loongarch-elf/local-ifunc-reloc.d b/ld/testsuite/ld-loongarch-elf/local-ifunc-reloc.d
+index bf73d9f2..8e1d3f0d 100644
+--- a/ld/testsuite/ld-loongarch-elf/local-ifunc-reloc.d
++++ b/ld/testsuite/ld-loongarch-elf/local-ifunc-reloc.d
+@@ -1,6 +1,7 @@
+ #as:
+ #ld: -shared -z combreloc
+ #objdump: -R
++#skip: loongarch*-elf
+ 
+ .*: +file format .*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index b697d015..6c65318a 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -150,17 +150,19 @@ if [istarget loongarch64-*-*] {
+       }
+     }
+ 
+-    run_ld_link_tests \
+-	[list \
+-	    [list \
+-		"loongarch relax .so build" \
+-		"-shared -e 0x0" "" \
+-		"" \
+-		{relax-so.s} \
+-		{} \
+-		"relax-so" \
+-	    ] \
+-	]
++    if [check_shared_lib_support] {
++      run_ld_link_tests \
++	  [list \
++	      [list \
++		  "loongarch relax .so build" \
++		  "-shared -e 0x0" "" \
++		  "" \
++		  {relax-so.s} \
++		  {} \
++		  "relax-so" \
++	      ] \
++	  ]
++    }
+ 
+       if [file exist "tmpdir/relax-so"] {
+ 	set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-so"]
+@@ -173,29 +175,31 @@ if [istarget loongarch64-*-*] {
+ 
+     # If symbol in data segment, offset need to sub segment align to prevent
+     # overflow.
+-    run_ld_link_tests \
+-	[list \
+-	    [list \
+-		"loongarch relax segment alignment min" \
+-		"-e0 -Ttext 0x120004000 -pie -z relro" "" \
+-		"" \
+-		{relax-segment-min.s} \
+-		{} \
+-		"relax-segment-min" \
+-	    ] \
+-	]
++    if [check_pie_support] {
++      run_ld_link_tests \
++	  [list \
++	      [list \
++		  "loongarch relax segment alignment min" \
++		  "-e0 -Ttext 0x120004000 -pie -z relro" "" \
++		  "" \
++		  {relax-segment-min.s} \
++		  {} \
++		  "relax-segment-min" \
++	      ] \
++	  ]
+ 
+-    run_ld_link_tests \
+-	[list \
+-	    [list \
+-		"loongarch relax segment alignment max" \
+-		"-e0 -Ttext 0x120004000 -pie -z relro" "" \
+-		"" \
+-		{relax-segment-max.s} \
+-		{} \
+-		"relax-segment-max" \
+-	    ] \
+-	]
++      run_ld_link_tests \
++	  [list \
++	      [list \
++		  "loongarch relax segment alignment max" \
++		  "-e0 -Ttext 0x120004000 -pie -z relro" "" \
++		  "" \
++		  {relax-segment-max.s} \
++		  {} \
++		  "relax-segment-max" \
++	      ] \
++	  ]
++    }
+ 
+     if [file exist "tmpdir/relax-tls-le"] {
+       set objdump_output1 [run_host_cmd "objdump" "-d tmpdir/relax-tls-le"]
+@@ -265,19 +269,22 @@ if [istarget loongarch64-*-*] {
+     }
+ 
+   }
+-  run_ld_link_tests \
+-      [list \
+-	  [list \
+-	      "loongarch relax-align" \
+-	      "-e 0x0 -z relro" "" \
+-	      "--no-warn" \
+-	      {relax-align.s} \
+-	      [list \
+-		  [list objdump -d relax-align.dd] \
+-	      ] \
+-	      "relax-align" \
+-	  ] \
+-      ]
++
++  if [check_shared_lib_support] {
++    run_ld_link_tests \
++	[list \
++	    [list \
++		"loongarch relax-align" \
++		"-e 0x0 -z relro" "" \
++		"--no-warn" \
++		{relax-align.s} \
++		[list \
++		    [list objdump -d relax-align.dd] \
++		] \
++		"relax-align" \
++	    ] \
++	]
++  }
+ 
+   set objdump_flags "-s -j .data"
+   run_ld_link_tests \
+-- 
+2.33.0
+

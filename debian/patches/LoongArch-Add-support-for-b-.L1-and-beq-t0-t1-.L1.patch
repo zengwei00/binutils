@@ -1,0 +1,63 @@
+From 114ab354c7fd16678578031340437b60e7b36e53 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Sun, 10 Dec 2023 17:41:32 +0800
+Subject: [PATCH 019/123] LoongArch: Add support for <b ".L1"> and <beq, $t0,
+ $t1, ".L1">
+
+Support symbol names enclosed in double quotation marks.
+---
+ .../gas/loongarch/double_quotation_marks.d          | 13 +++++++++++++
+ .../gas/loongarch/double_quotation_marks.s          |  2 ++
+ opcodes/loongarch-coder.c                           |  7 +++++++
+ 3 files changed, 22 insertions(+)
+ create mode 100644 gas/testsuite/gas/loongarch/double_quotation_marks.d
+ create mode 100644 gas/testsuite/gas/loongarch/double_quotation_marks.s
+
+diff --git a/gas/testsuite/gas/loongarch/double_quotation_marks.d b/gas/testsuite/gas/loongarch/double_quotation_marks.d
+new file mode 100644
+index 00000000..a42534b9
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/double_quotation_marks.d
+@@ -0,0 +1,13 @@
++#as:
++#objdump: -dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++.* <.text>:
++[ 	]+0:[ 	]+50000000[ 	]+b[ 	]+0[ 	]+# 0x0
++[ 	]+0: R_LARCH_B26[ 	]+.L1
++[ 	]+4:[ 	]+5800018d[ 	]+beq[ 	]+\$t0, \$t1, 0[ 	]+# 0x4
++[ 	]+4: R_LARCH_B16[ 	]+.L1
+diff --git a/gas/testsuite/gas/loongarch/double_quotation_marks.s b/gas/testsuite/gas/loongarch/double_quotation_marks.s
+new file mode 100644
+index 00000000..f8b63074
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/double_quotation_marks.s
+@@ -0,0 +1,2 @@
++b ".L1"
++beq $r12, $r13, ".L1"
+diff --git a/opcodes/loongarch-coder.c b/opcodes/loongarch-coder.c
+index a68ae1c3..672a468b 100644
+--- a/opcodes/loongarch-coder.c
++++ b/opcodes/loongarch-coder.c
+@@ -264,6 +264,13 @@ loongarch_split_args_by_comma (char *args, const char *arg_strs[])
+ 	else
+ 	  *args = '\0', arg_strs[num++] = args + 1;
+       }
++
++  if (*(args-1) == '"')
++    {
++      *(args-1) = '\0';
++      arg_strs[num-1] = arg_strs[num-1] + 1;
++    }
++
+   arg_strs[num] = NULL;
+   return num;
+ }
+-- 
+2.33.0
+

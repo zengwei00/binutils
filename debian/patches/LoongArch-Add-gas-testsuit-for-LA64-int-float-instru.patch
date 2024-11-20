@@ -1,0 +1,1237 @@
+From 1d52dc328f178949b32251507572afb688e929d5 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 10 Jan 2024 14:44:48 +0800
+Subject: [PATCH 065/123] LoongArch: Add gas testsuit for LA64 int/float
+ instructions
+
+Test the int/float instructions of LA64.
+---
+ gas/testsuite/gas/loongarch/insn_float64.d | 165 ++++++++
+ gas/testsuite/gas/loongarch/insn_float64.s | 157 ++++++++
+ gas/testsuite/gas/loongarch/insn_int64.d   | 430 ++++++++++++++++++++
+ gas/testsuite/gas/loongarch/insn_int64.s   | 440 +++++++++++++++++++++
+ 4 files changed, 1192 insertions(+)
+ create mode 100644 gas/testsuite/gas/loongarch/insn_float64.d
+ create mode 100644 gas/testsuite/gas/loongarch/insn_float64.s
+ create mode 100644 gas/testsuite/gas/loongarch/insn_int64.d
+ create mode 100644 gas/testsuite/gas/loongarch/insn_int64.s
+
+diff --git a/gas/testsuite/gas/loongarch/insn_float64.d b/gas/testsuite/gas/loongarch/insn_float64.d
+new file mode 100644
+index 00000000..4ffbfa78
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_float64.d
+@@ -0,0 +1,165 @@
++#as-new:
++#objdump: -d
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	01008820 	fadd.s      	\$fa0, \$fa1, \$fa2
++   4:	01010820 	fadd.d      	\$fa0, \$fa1, \$fa2
++   8:	01028820 	fsub.s      	\$fa0, \$fa1, \$fa2
++   c:	01030820 	fsub.d      	\$fa0, \$fa1, \$fa2
++  10:	01048820 	fmul.s      	\$fa0, \$fa1, \$fa2
++  14:	01050820 	fmul.d      	\$fa0, \$fa1, \$fa2
++  18:	01068820 	fdiv.s      	\$fa0, \$fa1, \$fa2
++  1c:	01070820 	fdiv.d      	\$fa0, \$fa1, \$fa2
++  20:	01088820 	fmax.s      	\$fa0, \$fa1, \$fa2
++  24:	01090820 	fmax.d      	\$fa0, \$fa1, \$fa2
++  28:	010a8820 	fmin.s      	\$fa0, \$fa1, \$fa2
++  2c:	010b0820 	fmin.d      	\$fa0, \$fa1, \$fa2
++  30:	010c8820 	fmaxa.s     	\$fa0, \$fa1, \$fa2
++  34:	010d0820 	fmaxa.d     	\$fa0, \$fa1, \$fa2
++  38:	010e8820 	fmina.s     	\$fa0, \$fa1, \$fa2
++  3c:	010f0820 	fmina.d     	\$fa0, \$fa1, \$fa2
++  40:	01108820 	fscaleb.s   	\$fa0, \$fa1, \$fa2
++  44:	01110820 	fscaleb.d   	\$fa0, \$fa1, \$fa2
++  48:	01128820 	fcopysign.s 	\$fa0, \$fa1, \$fa2
++  4c:	01130820 	fcopysign.d 	\$fa0, \$fa1, \$fa2
++  50:	01140420 	fabs.s      	\$fa0, \$fa1
++  54:	01140820 	fabs.d      	\$fa0, \$fa1
++  58:	01141420 	fneg.s      	\$fa0, \$fa1
++  5c:	01141820 	fneg.d      	\$fa0, \$fa1
++  60:	01142420 	flogb.s     	\$fa0, \$fa1
++  64:	01142820 	flogb.d     	\$fa0, \$fa1
++  68:	01143420 	fclass.s    	\$fa0, \$fa1
++  6c:	01143820 	fclass.d    	\$fa0, \$fa1
++  70:	01144420 	fsqrt.s     	\$fa0, \$fa1
++  74:	01144820 	fsqrt.d     	\$fa0, \$fa1
++  78:	01145420 	frecip.s    	\$fa0, \$fa1
++  7c:	01145820 	frecip.d    	\$fa0, \$fa1
++  80:	01146420 	frsqrt.s    	\$fa0, \$fa1
++  84:	01146820 	frsqrt.d    	\$fa0, \$fa1
++  88:	01149420 	fmov.s      	\$fa0, \$fa1
++  8c:	01149820 	fmov.d      	\$fa0, \$fa1
++  90:	0114a4a0 	movgr2fr.w  	\$fa0, \$a1
++  94:	0114a8a0 	movgr2fr.d  	\$fa0, \$a1
++  98:	0114aca0 	movgr2frh.w 	\$fa0, \$a1
++  9c:	0114b424 	movfr2gr.s  	\$a0, \$fa1
++  a0:	0114b824 	movfr2gr.d  	\$a0, \$fa1
++  a4:	0114bc24 	movfrh2gr.s 	\$a0, \$fa1
++  a8:	0114c0a0 	movgr2fcsr  	\$fcsr0, \$a1
++  ac:	0114c804 	movfcsr2gr  	\$a0, \$fcsr0
++  b0:	0114d020 	movfr2cf    	\$fcc0, \$fa1
++  b4:	0114d4a0 	movcf2fr    	\$fa0, \$fcc5
++  b8:	0114d8a0 	movgr2cf    	\$fcc0, \$a1
++  bc:	0114dca4 	movcf2gr    	\$a0, \$fcc5
++  c0:	01191820 	fcvt.s.d    	\$fa0, \$fa1
++  c4:	01192420 	fcvt.d.s    	\$fa0, \$fa1
++  c8:	011a0420 	ftintrm.w.s 	\$fa0, \$fa1
++  cc:	011a0820 	ftintrm.w.d 	\$fa0, \$fa1
++  d0:	011a2420 	ftintrm.l.s 	\$fa0, \$fa1
++  d4:	011a2820 	ftintrm.l.d 	\$fa0, \$fa1
++  d8:	011a4420 	ftintrp.w.s 	\$fa0, \$fa1
++  dc:	011a4820 	ftintrp.w.d 	\$fa0, \$fa1
++  e0:	011a6420 	ftintrp.l.s 	\$fa0, \$fa1
++  e4:	011a6820 	ftintrp.l.d 	\$fa0, \$fa1
++  e8:	011a8420 	ftintrz.w.s 	\$fa0, \$fa1
++  ec:	011a8820 	ftintrz.w.d 	\$fa0, \$fa1
++  f0:	011aa420 	ftintrz.l.s 	\$fa0, \$fa1
++  f4:	011aa820 	ftintrz.l.d 	\$fa0, \$fa1
++  f8:	011ac420 	ftintrne.w.s	\$fa0, \$fa1
++  fc:	011ac820 	ftintrne.w.d	\$fa0, \$fa1
++ 100:	011ae420 	ftintrne.l.s	\$fa0, \$fa1
++ 104:	011ae820 	ftintrne.l.d	\$fa0, \$fa1
++ 108:	011b0420 	ftint.w.s   	\$fa0, \$fa1
++ 10c:	011b0820 	ftint.w.d   	\$fa0, \$fa1
++ 110:	011b2420 	ftint.l.s   	\$fa0, \$fa1
++ 114:	011b2820 	ftint.l.d   	\$fa0, \$fa1
++ 118:	011d1020 	ffint.s.w   	\$fa0, \$fa1
++ 11c:	011d1820 	ffint.s.l   	\$fa0, \$fa1
++ 120:	011d2020 	ffint.d.w   	\$fa0, \$fa1
++ 124:	011d2820 	ffint.d.l   	\$fa0, \$fa1
++ 128:	011e4420 	frint.s     	\$fa0, \$fa1
++ 12c:	011e4820 	frint.d     	\$fa0, \$fa1
++ 130:	01147420 	frecipe.s   	\$fa0, \$fa1
++ 134:	01147820 	frecipe.d   	\$fa0, \$fa1
++ 138:	01148420 	frsqrte.s   	\$fa0, \$fa1
++ 13c:	01148820 	frsqrte.d   	\$fa0, \$fa1
++ 140:	08118820 	fmadd.s     	\$fa0, \$fa1, \$fa2, \$fa3
++ 144:	08218820 	fmadd.d     	\$fa0, \$fa1, \$fa2, \$fa3
++ 148:	08518820 	fmsub.s     	\$fa0, \$fa1, \$fa2, \$fa3
++ 14c:	08618820 	fmsub.d     	\$fa0, \$fa1, \$fa2, \$fa3
++ 150:	08918820 	fnmadd.s    	\$fa0, \$fa1, \$fa2, \$fa3
++ 154:	08a18820 	fnmadd.d    	\$fa0, \$fa1, \$fa2, \$fa3
++ 158:	08d18820 	fnmsub.s    	\$fa0, \$fa1, \$fa2, \$fa3
++ 15c:	08e18820 	fnmsub.d    	\$fa0, \$fa1, \$fa2, \$fa3
++ 160:	0c100820 	fcmp.caf.s  	\$fcc0, \$fa1, \$fa2
++ 164:	0c108820 	fcmp.saf.s  	\$fcc0, \$fa1, \$fa2
++ 168:	0c110820 	fcmp.clt.s  	\$fcc0, \$fa1, \$fa2
++ 16c:	0c118820 	fcmp.slt.s  	\$fcc0, \$fa1, \$fa2
++ 170:	0c118820 	fcmp.slt.s  	\$fcc0, \$fa1, \$fa2
++ 174:	0c120820 	fcmp.ceq.s  	\$fcc0, \$fa1, \$fa2
++ 178:	0c128820 	fcmp.seq.s  	\$fcc0, \$fa1, \$fa2
++ 17c:	0c130820 	fcmp.cle.s  	\$fcc0, \$fa1, \$fa2
++ 180:	0c138820 	fcmp.sle.s  	\$fcc0, \$fa1, \$fa2
++ 184:	0c138820 	fcmp.sle.s  	\$fcc0, \$fa1, \$fa2
++ 188:	0c140820 	fcmp.cun.s  	\$fcc0, \$fa1, \$fa2
++ 18c:	0c148820 	fcmp.sun.s  	\$fcc0, \$fa1, \$fa2
++ 190:	0c150820 	fcmp.cult.s 	\$fcc0, \$fa1, \$fa2
++ 194:	0c150820 	fcmp.cult.s 	\$fcc0, \$fa1, \$fa2
++ 198:	0c158820 	fcmp.sult.s 	\$fcc0, \$fa1, \$fa2
++ 19c:	0c160820 	fcmp.cueq.s 	\$fcc0, \$fa1, \$fa2
++ 1a0:	0c168820 	fcmp.sueq.s 	\$fcc0, \$fa1, \$fa2
++ 1a4:	0c170820 	fcmp.cule.s 	\$fcc0, \$fa1, \$fa2
++ 1a8:	0c170820 	fcmp.cule.s 	\$fcc0, \$fa1, \$fa2
++ 1ac:	0c178820 	fcmp.sule.s 	\$fcc0, \$fa1, \$fa2
++ 1b0:	0c180820 	fcmp.cne.s  	\$fcc0, \$fa1, \$fa2
++ 1b4:	0c188820 	fcmp.sne.s  	\$fcc0, \$fa1, \$fa2
++ 1b8:	0c1a0820 	fcmp.cor.s  	\$fcc0, \$fa1, \$fa2
++ 1bc:	0c1a8820 	fcmp.sor.s  	\$fcc0, \$fa1, \$fa2
++ 1c0:	0c1c0820 	fcmp.cune.s 	\$fcc0, \$fa1, \$fa2
++ 1c4:	0c1c8820 	fcmp.sune.s 	\$fcc0, \$fa1, \$fa2
++ 1c8:	0c200820 	fcmp.caf.d  	\$fcc0, \$fa1, \$fa2
++ 1cc:	0c208820 	fcmp.saf.d  	\$fcc0, \$fa1, \$fa2
++ 1d0:	0c210820 	fcmp.clt.d  	\$fcc0, \$fa1, \$fa2
++ 1d4:	0c218820 	fcmp.slt.d  	\$fcc0, \$fa1, \$fa2
++ 1d8:	0c218820 	fcmp.slt.d  	\$fcc0, \$fa1, \$fa2
++ 1dc:	0c220820 	fcmp.ceq.d  	\$fcc0, \$fa1, \$fa2
++ 1e0:	0c228820 	fcmp.seq.d  	\$fcc0, \$fa1, \$fa2
++ 1e4:	0c230820 	fcmp.cle.d  	\$fcc0, \$fa1, \$fa2
++ 1e8:	0c238820 	fcmp.sle.d  	\$fcc0, \$fa1, \$fa2
++ 1ec:	0c238820 	fcmp.sle.d  	\$fcc0, \$fa1, \$fa2
++ 1f0:	0c240820 	fcmp.cun.d  	\$fcc0, \$fa1, \$fa2
++ 1f4:	0c248820 	fcmp.sun.d  	\$fcc0, \$fa1, \$fa2
++ 1f8:	0c250820 	fcmp.cult.d 	\$fcc0, \$fa1, \$fa2
++ 1fc:	0c250820 	fcmp.cult.d 	\$fcc0, \$fa1, \$fa2
++ 200:	0c258820 	fcmp.sult.d 	\$fcc0, \$fa1, \$fa2
++ 204:	0c260820 	fcmp.cueq.d 	\$fcc0, \$fa1, \$fa2
++ 208:	0c268820 	fcmp.sueq.d 	\$fcc0, \$fa1, \$fa2
++ 20c:	0c270820 	fcmp.cule.d 	\$fcc0, \$fa1, \$fa2
++ 210:	0c270820 	fcmp.cule.d 	\$fcc0, \$fa1, \$fa2
++ 214:	0c278820 	fcmp.sule.d 	\$fcc0, \$fa1, \$fa2
++ 218:	0c280820 	fcmp.cne.d  	\$fcc0, \$fa1, \$fa2
++ 21c:	0c288820 	fcmp.sne.d  	\$fcc0, \$fa1, \$fa2
++ 220:	0c2a0820 	fcmp.cor.d  	\$fcc0, \$fa1, \$fa2
++ 224:	0c2a8820 	fcmp.sor.d  	\$fcc0, \$fa1, \$fa2
++ 228:	0c2c0820 	fcmp.cune.d 	\$fcc0, \$fa1, \$fa2
++ 22c:	0c2c8820 	fcmp.sune.d 	\$fcc0, \$fa1, \$fa2
++ 230:	0d000820 	fsel        	\$fa0, \$fa1, \$fa2, \$fcc0
++ 234:	2b00058a 	fld.s       	\$ft2, \$t0, 1
++ 238:	2b40058a 	fst.s       	\$ft2, \$t0, 1
++ 23c:	2b80058a 	fld.d       	\$ft2, \$t0, 1
++ 240:	2bc0058a 	fst.d       	\$ft2, \$t0, 1
++ 244:	38741480 	fldgt.s     	\$fa0, \$a0, \$a1
++ 248:	38749480 	fldgt.d     	\$fa0, \$a0, \$a1
++ 24c:	38751480 	fldle.s     	\$fa0, \$a0, \$a1
++ 250:	38759480 	fldle.d     	\$fa0, \$a0, \$a1
++ 254:	38761480 	fstgt.s     	\$fa0, \$a0, \$a1
++ 258:	38769480 	fstgt.d     	\$fa0, \$a0, \$a1
++ 25c:	38771480 	fstle.s     	\$fa0, \$a0, \$a1
++ 260:	38779480 	fstle.d     	\$fa0, \$a0, \$a1
++ 264:	48000000 	bceqz       	\$fcc0, 0	# 0x264
++ 268:	48000100 	bcnez       	\$fcc0, 0	# 0x268
+diff --git a/gas/testsuite/gas/loongarch/insn_float64.s b/gas/testsuite/gas/loongarch/insn_float64.s
+new file mode 100644
+index 00000000..a7ce56ef
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_float64.s
+@@ -0,0 +1,157 @@
++fadd.s  $f0,$f1,$f2
++fadd.d  $f0,$f1,$f2
++fsub.s  $f0,$f1,$f2
++fsub.d  $f0,$f1,$f2
++fmul.s  $f0,$f1,$f2
++fmul.d  $f0,$f1,$f2
++fdiv.s  $f0,$f1,$f2
++fdiv.d  $f0,$f1,$f2
++fmax.s  $f0,$f1,$f2
++fmax.d  $f0,$f1,$f2
++fmin.s  $f0,$f1,$f2
++fmin.d  $f0,$f1,$f2
++fmaxa.s  $f0,$f1,$f2
++fmaxa.d  $f0,$f1,$f2
++fmina.s  $f0,$f1,$f2
++fmina.d  $f0,$f1,$f2
++fscaleb.s  $f0,$f1,$f2
++fscaleb.d  $f0,$f1,$f2
++fcopysign.s  $f0,$f1,$f2
++fcopysign.d  $f0,$f1,$f2
++fabs.s  $f0,$f1
++fabs.d  $f0,$f1
++fneg.s  $f0,$f1
++fneg.d  $f0,$f1
++flogb.s  $f0,$f1
++flogb.d  $f0,$f1
++fclass.s  $f0,$f1
++fclass.d  $f0,$f1
++fsqrt.s  $f0,$f1
++fsqrt.d  $f0,$f1
++frecip.s  $f0,$f1
++frecip.d  $f0,$f1
++frsqrt.s  $f0,$f1
++frsqrt.d  $f0,$f1
++fmov.s  $f0,$f1
++fmov.d  $f0,$f1
++movgr2fr.w  $f0,$r5
++movgr2fr.d  $f0,$r5
++movgr2frh.w  $f0,$r5
++movfr2gr.s  $r4,$f1
++movfr2gr.d  $r4,$f1
++movfrh2gr.s  $r4,$f1
++movgr2fcsr  $fcsr0,$r5
++movfcsr2gr  $r4,$fcsr0
++movfr2cf  $fcc0,$f1
++movcf2fr  $f0,$fcc5
++movgr2cf  $fcc0,$r5
++movcf2gr  $r4,$fcc5
++fcvt.s.d  $f0,$f1
++fcvt.d.s  $f0,$f1
++ftintrm.w.s  $f0,$f1
++ftintrm.w.d  $f0,$f1
++ftintrm.l.s  $f0,$f1
++ftintrm.l.d  $f0,$f1
++ftintrp.w.s  $f0,$f1
++ftintrp.w.d  $f0,$f1
++ftintrp.l.s  $f0,$f1
++ftintrp.l.d  $f0,$f1
++ftintrz.w.s  $f0,$f1
++ftintrz.w.d  $f0,$f1
++ftintrz.l.s  $f0,$f1
++ftintrz.l.d  $f0,$f1
++ftintrne.w.s  $f0,$f1
++ftintrne.w.d  $f0,$f1
++ftintrne.l.s  $f0,$f1
++ftintrne.l.d  $f0,$f1
++ftint.w.s  $f0,$f1
++ftint.w.d  $f0,$f1
++ftint.l.s  $f0,$f1
++ftint.l.d  $f0,$f1
++ffint.s.w  $f0,$f1
++ffint.s.l  $f0,$f1
++ffint.d.w  $f0,$f1
++ffint.d.l  $f0,$f1
++frint.s  $f0,$f1
++frint.d  $f0,$f1
++frecipe.s  $f0,$f1
++frecipe.d  $f0,$f1
++frsqrte.s  $f0,$f1
++frsqrte.d  $f0,$f1
++
++# 4_opt_op
++fmadd.s  $f0,$f1,$f2,$f3
++fmadd.d  $f0,$f1,$f2,$f3
++fmsub.s  $f0,$f1,$f2,$f3
++fmsub.d  $f0,$f1,$f2,$f3
++fnmadd.s  $f0,$f1,$f2,$f3
++fnmadd.d  $f0,$f1,$f2,$f3
++fnmsub.s  $f0,$f1,$f2,$f3
++fnmsub.d  $f0,$f1,$f2,$f3
++fcmp.caf.s  $fcc0,$f1,$f2
++fcmp.saf.s  $fcc0,$f1,$f2
++fcmp.clt.s  $fcc0,$f1,$f2
++fcmp.slt.s  $fcc0,$f1,$f2
++fcmp.sgt.s  $fcc0,$f2,$f1
++fcmp.ceq.s  $fcc0,$f1,$f2
++fcmp.seq.s  $fcc0,$f1,$f2
++fcmp.cle.s  $fcc0,$f1,$f2
++fcmp.sle.s  $fcc0,$f1,$f2
++fcmp.sge.s  $fcc0,$f2,$f1
++fcmp.cun.s  $fcc0,$f1,$f2
++fcmp.sun.s  $fcc0,$f1,$f2
++fcmp.cult.s  $fcc0,$f1,$f2
++fcmp.cugt.s  $fcc0,$f2,$f1
++fcmp.sult.s  $fcc0,$f1,$f2
++fcmp.cueq.s  $fcc0,$f1,$f2
++fcmp.sueq.s  $fcc0,$f1,$f2
++fcmp.cule.s  $fcc0,$f1,$f2
++fcmp.cuge.s  $fcc0,$f2,$f1
++fcmp.sule.s  $fcc0,$f1,$f2
++fcmp.cne.s  $fcc0,$f1,$f2
++fcmp.sne.s  $fcc0,$f1,$f2
++fcmp.cor.s  $fcc0,$f1,$f2
++fcmp.sor.s  $fcc0,$f1,$f2
++fcmp.cune.s  $fcc0,$f1,$f2
++fcmp.sune.s  $fcc0,$f1,$f2
++fcmp.caf.d  $fcc0,$f1,$f2
++fcmp.saf.d  $fcc0,$f1,$f2
++fcmp.clt.d  $fcc0,$f1,$f2
++fcmp.slt.d  $fcc0,$f1,$f2
++fcmp.sgt.d  $fcc0,$f2,$f1
++fcmp.ceq.d  $fcc0,$f1,$f2
++fcmp.seq.d  $fcc0,$f1,$f2
++fcmp.cle.d  $fcc0,$f1,$f2
++fcmp.sle.d  $fcc0,$f1,$f2
++fcmp.sge.d  $fcc0,$f2,$f1
++fcmp.cun.d  $fcc0,$f1,$f2
++fcmp.sun.d  $fcc0,$f1,$f2
++fcmp.cult.d  $fcc0,$f1,$f2
++fcmp.cugt.d  $fcc0,$f2,$f1
++fcmp.sult.d  $fcc0,$f1,$f2
++fcmp.cueq.d  $fcc0,$f1,$f2
++fcmp.sueq.d  $fcc0,$f1,$f2
++fcmp.cule.d  $fcc0,$f1,$f2
++fcmp.cuge.d  $fcc0,$f2,$f1
++fcmp.sule.d  $fcc0,$f1,$f2
++fcmp.cne.d  $fcc0,$f1,$f2
++fcmp.sne.d  $fcc0,$f1,$f2
++fcmp.cor.d  $fcc0,$f1,$f2
++fcmp.sor.d  $fcc0,$f1,$f2
++fcmp.cune.d  $fcc0,$f1,$f2
++fcmp.sune.d  $fcc0,$f1,$f2
++fsel  $f0,$f1,$f2,$fcc0
++fld.s $f10,$r12,1
++fst.s $f10,$r12,1
++fld.d $f10,$r12,1
++fst.d $f10,$r12,1
++fldgt.s	$f0,$a0,$a1
++fldgt.d	$f0,$a0,$a1
++fldle.s	$f0,$a0,$a1
++fldle.d	$f0,$a0,$a1
++fstgt.s	$f0,$a0,$a1
++fstgt.d	$f0,$a0,$a1
++fstle.s	$f0,$a0,$a1
++fstle.d	$f0,$a0,$a1
++bceqz  $fcc0,.L1
++bcnez  $fcc0,.L1
+diff --git a/gas/testsuite/gas/loongarch/insn_int64.d b/gas/testsuite/gas/loongarch/insn_int64.d
+new file mode 100644
+index 00000000..360b840d
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_int64.d
+@@ -0,0 +1,430 @@
++#as-new:
++#objdump: -d -M no-aliases
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <.*>:
++   0:	020000a4 	slti        	\$a0, \$a1, 0
++   4:	021ffca4 	slti        	\$a0, \$a1, 2047
++   8:	022004a4 	slti        	\$a0, \$a1, -2047
++   c:	024000a4 	sltui       	\$a0, \$a1, 0
++  10:	025ffca4 	sltui       	\$a0, \$a1, 2047
++  14:	026004a4 	sltui       	\$a0, \$a1, -2047
++  18:	028000a4 	addi.w      	\$a0, \$a1, 0
++  1c:	029ffca4 	addi.w      	\$a0, \$a1, 2047
++  20:	02a004a4 	addi.w      	\$a0, \$a1, -2047
++  24:	02c000a4 	addi.d      	\$a0, \$a1, 0
++  28:	02dffca4 	addi.d      	\$a0, \$a1, 2047
++  2c:	02e004a4 	addi.d      	\$a0, \$a1, -2047
++  30:	030000a4 	lu52i.d     	\$a0, \$a1, 0
++  34:	031ffca4 	lu52i.d     	\$a0, \$a1, 2047
++  38:	032004a4 	lu52i.d     	\$a0, \$a1, -2047
++  3c:	034000a4 	andi        	\$a0, \$a1, 0x0
++  40:	035ffca4 	andi        	\$a0, \$a1, 0x7ff
++  44:	038000a4 	ori         	\$a0, \$a1, 0x0
++  48:	039ffca4 	ori         	\$a0, \$a1, 0x7ff
++  4c:	03c000a4 	xori        	\$a0, \$a1, 0x0
++  50:	03dffca4 	xori        	\$a0, \$a1, 0x7ff
++  54:	100000a4 	addu16i.d   	\$a0, \$a1, 0
++  58:	11fffca4 	addu16i.d   	\$a0, \$a1, 32767
++  5c:	120004a4 	addu16i.d   	\$a0, \$a1, -32767
++  60:	14000004 	lu12i.w     	\$a0, 0
++  64:	14ffffe4 	lu12i.w     	\$a0, 524287
++  68:	17000024 	lu32i.d     	\$a0, -524287
++  6c:	18000004 	pcaddi      	\$a0, 0
++  70:	18ffffe4 	pcaddi      	\$a0, 524287
++  74:	19000004 	pcaddi      	\$a0, -524288
++  78:	1a000004 	pcalau12i   	\$a0, 0
++  7c:	1affffe4 	pcalau12i   	\$a0, 524287
++  80:	1b000024 	pcalau12i   	\$a0, -524287
++  84:	1c000004 	pcaddu12i   	\$a0, 0
++  88:	1cffffe4 	pcaddu12i   	\$a0, 524287
++  8c:	1d000024 	pcaddu12i   	\$a0, -524287
++  90:	1e000004 	pcaddu18i   	\$a0, 0
++  94:	1effffe4 	pcaddu18i   	\$a0, 524287
++  98:	1f000024 	pcaddu18i   	\$a0, -524287
++  9c:	0004b58b 	alsl.w      	\$a7, \$t0, \$t1, 0x2
++  a0:	0006b58b 	alsl.wu     	\$a7, \$t0, \$t1, 0x2
++  a4:	0009358b 	bytepick.w  	\$a7, \$t0, \$t1, 0x2
++  a8:	000d358b 	bytepick.d  	\$a7, \$t0, \$t1, 0x2
++  ac:	002a0002 	break       	0x2
++  b0:	002a8002 	dbcl        	0x2
++  b4:	002b0002 	syscall     	0x2
++  b8:	002cb58b 	alsl.d      	\$a7, \$t0, \$t1, 0x2
++  bc:	0040898b 	slli.w      	\$a7, \$t0, 0x2
++  c0:	0041098b 	slli.d      	\$a7, \$t0, 0x2
++  c4:	0044898b 	srli.w      	\$a7, \$t0, 0x2
++  c8:	004509ac 	srli.d      	\$t0, \$t1, 0x2
++  cc:	004889ac 	srai.w      	\$t0, \$t1, 0x2
++  d0:	004909ac 	srai.d      	\$t0, \$t1, 0x2
++  d4:	006209ac 	bstrins.w   	\$t0, \$t1, 0x2, 0x2
++  d8:	008209ac 	bstrins.d   	\$t0, \$t1, 0x2, 0x2
++  dc:	00c209ac 	bstrpick.d  	\$t0, \$t1, 0x2, 0x2
++  e0:	00c209ac 	bstrpick.d  	\$t0, \$t1, 0x2, 0x2
++  e4:	02048dac 	slti        	\$t0, \$t1, 291
++  e8:	02448dac 	sltui       	\$t0, \$t1, 291
++  ec:	02848dac 	addi.w      	\$t0, \$t1, 291
++  f0:	02c48dac 	addi.d      	\$t0, \$t1, 291
++  f4:	03048dac 	lu52i.d     	\$t0, \$t1, 291
++  f8:	034009ac 	andi        	\$t0, \$t1, 0x2
++  fc:	038009ac 	ori         	\$t0, \$t1, 0x2
++ 100:	03c009ac 	xori        	\$t0, \$t1, 0x2
++ 104:	100009ac 	addu16i.d   	\$t0, \$t1, 2
++ 108:	1400246c 	lu12i.w     	\$t0, 291
++ 10c:	1600246c 	lu32i.d     	\$t0, 291
++ 110:	1800000c 	pcaddi      	\$t0, 0
++ 114:	1a00246c 	pcalau12i   	\$t0, 291
++ 118:	1c00246c 	pcaddu12i   	\$t0, 291
++ 11c:	1e00246c 	pcaddu18i   	\$t0, 291
++ 120:	04048c0c 	csrrd       	\$t0, 0x123
++ 124:	04048c2c 	csrwr       	\$t0, 0x123
++ 128:	040009ac 	csrxchg     	\$t0, \$t1, 0x2
++ 12c:	060009a2 	cacop       	0x2, \$t1, 2
++ 130:	064009ac 	lddir       	\$t0, \$t1, 0x2
++ 134:	06440980 	ldpte       	\$t0, 0x2
++ 138:	0649b9a2 	invtlb      	0x2, \$t1, \$t2
++ 13c:	000010a4 	clo.w       	\$a0, \$a1
++ 140:	000014a4 	clz.w       	\$a0, \$a1
++ 144:	000018a4 	cto.w       	\$a0, \$a1
++ 148:	00001ca4 	ctz.w       	\$a0, \$a1
++ 14c:	000020a4 	clo.d       	\$a0, \$a1
++ 150:	000024a4 	clz.d       	\$a0, \$a1
++ 154:	000028a4 	cto.d       	\$a0, \$a1
++ 158:	00002ca4 	ctz.d       	\$a0, \$a1
++ 15c:	000030a4 	revb.2h     	\$a0, \$a1
++ 160:	000034a4 	revb.4h     	\$a0, \$a1
++ 164:	000038a4 	revb.2w     	\$a0, \$a1
++ 168:	00003ca4 	revb.d      	\$a0, \$a1
++ 16c:	000040a4 	revh.2w     	\$a0, \$a1
++ 170:	000044a4 	revh.d      	\$a0, \$a1
++ 174:	000048a4 	bitrev.4b   	\$a0, \$a1
++ 178:	00004ca4 	bitrev.8b   	\$a0, \$a1
++ 17c:	000050a4 	bitrev.w    	\$a0, \$a1
++ 180:	000054a4 	bitrev.d    	\$a0, \$a1
++ 184:	000058a4 	ext.w.h     	\$a0, \$a1
++ 188:	00005ca4 	ext.w.b     	\$a0, \$a1
++ 18c:	000060a4 	rdtimel.w   	\$a0, \$a1
++ 190:	000064a4 	rdtimeh.w   	\$a0, \$a1
++ 194:	000068a4 	rdtime.d    	\$a0, \$a1
++ 198:	00006ca4 	cpucfg      	\$a0, \$a1
++ 19c:	000118a0 	asrtle.d    	\$a1, \$a2
++ 1a0:	000198a0 	asrtgt.d    	\$a1, \$a2
++ 1a4:	000418a4 	alsl.w      	\$a0, \$a1, \$a2, 0x1
++ 1a8:	000598a4 	alsl.w      	\$a0, \$a1, \$a2, 0x4
++ 1ac:	000618a4 	alsl.wu     	\$a0, \$a1, \$a2, 0x1
++ 1b0:	000798a4 	alsl.wu     	\$a0, \$a1, \$a2, 0x4
++ 1b4:	000818a4 	bytepick.w  	\$a0, \$a1, \$a2, 0x0
++ 1b8:	000998a4 	bytepick.w  	\$a0, \$a1, \$a2, 0x3
++ 1bc:	000c18a4 	bytepick.d  	\$a0, \$a1, \$a2, 0x0
++ 1c0:	000f98a4 	bytepick.d  	\$a0, \$a1, \$a2, 0x7
++ 1c4:	001018a4 	add.w       	\$a0, \$a1, \$a2
++ 1c8:	001098a4 	add.d       	\$a0, \$a1, \$a2
++ 1cc:	001118a4 	sub.w       	\$a0, \$a1, \$a2
++ 1d0:	001198a4 	sub.d       	\$a0, \$a1, \$a2
++ 1d4:	001218a4 	slt         	\$a0, \$a1, \$a2
++ 1d8:	001298a4 	sltu        	\$a0, \$a1, \$a2
++ 1dc:	001318a4 	maskeqz     	\$a0, \$a1, \$a2
++ 1e0:	001398a4 	masknez     	\$a0, \$a1, \$a2
++ 1e4:	001418a4 	nor         	\$a0, \$a1, \$a2
++ 1e8:	001498a4 	and         	\$a0, \$a1, \$a2
++ 1ec:	001518a4 	or          	\$a0, \$a1, \$a2
++ 1f0:	001598a4 	xor         	\$a0, \$a1, \$a2
++ 1f4:	001618a4 	orn         	\$a0, \$a1, \$a2
++ 1f8:	001698a4 	andn        	\$a0, \$a1, \$a2
++ 1fc:	001718a4 	sll.w       	\$a0, \$a1, \$a2
++ 200:	001798a4 	srl.w       	\$a0, \$a1, \$a2
++ 204:	001818a4 	sra.w       	\$a0, \$a1, \$a2
++ 208:	001898a4 	sll.d       	\$a0, \$a1, \$a2
++ 20c:	001918a4 	srl.d       	\$a0, \$a1, \$a2
++ 210:	001998a4 	sra.d       	\$a0, \$a1, \$a2
++ 214:	001b18a4 	rotr.w      	\$a0, \$a1, \$a2
++ 218:	001b98a4 	rotr.d      	\$a0, \$a1, \$a2
++ 21c:	001c18a4 	mul.w       	\$a0, \$a1, \$a2
++ 220:	001c98a4 	mulh.w      	\$a0, \$a1, \$a2
++ 224:	001d18a4 	mulh.wu     	\$a0, \$a1, \$a2
++ 228:	001d98a4 	mul.d       	\$a0, \$a1, \$a2
++ 22c:	001e18a4 	mulh.d      	\$a0, \$a1, \$a2
++ 230:	001e98a4 	mulh.du     	\$a0, \$a1, \$a2
++ 234:	001f18a4 	mulw.d.w    	\$a0, \$a1, \$a2
++ 238:	001f98a4 	mulw.d.wu   	\$a0, \$a1, \$a2
++ 23c:	002018a4 	div.w       	\$a0, \$a1, \$a2
++ 240:	002098a4 	mod.w       	\$a0, \$a1, \$a2
++ 244:	002118a4 	div.wu      	\$a0, \$a1, \$a2
++ 248:	002198a4 	mod.wu      	\$a0, \$a1, \$a2
++ 24c:	002218a4 	div.d       	\$a0, \$a1, \$a2
++ 250:	002298a4 	mod.d       	\$a0, \$a1, \$a2
++ 254:	002318a4 	div.du      	\$a0, \$a1, \$a2
++ 258:	002398a4 	mod.du      	\$a0, \$a1, \$a2
++ 25c:	002418a4 	crc.w.b.w   	\$a0, \$a1, \$a2
++ 260:	002498a4 	crc.w.h.w   	\$a0, \$a1, \$a2
++ 264:	002518a4 	crc.w.w.w   	\$a0, \$a1, \$a2
++ 268:	002598a4 	crc.w.d.w   	\$a0, \$a1, \$a2
++ 26c:	002618a4 	crcc.w.b.w  	\$a0, \$a1, \$a2
++ 270:	002698a4 	crcc.w.h.w  	\$a0, \$a1, \$a2
++ 274:	002718a4 	crcc.w.w.w  	\$a0, \$a1, \$a2
++ 278:	002798a4 	crcc.w.d.w  	\$a0, \$a1, \$a2
++ 27c:	002a0000 	break       	0x0
++ 280:	002a7fff 	break       	0x7fff
++ 284:	002a8000 	dbcl        	0x0
++ 288:	002affff 	dbcl        	0x7fff
++ 28c:	002c18a4 	alsl.d      	\$a0, \$a1, \$a2, 0x1
++ 290:	002d98a4 	alsl.d      	\$a0, \$a1, \$a2, 0x4
++ 294:	004080a4 	slli.w      	\$a0, \$a1, 0x0
++ 298:	004084a4 	slli.w      	\$a0, \$a1, 0x1
++ 29c:	0040fca4 	slli.w      	\$a0, \$a1, 0x1f
++ 2a0:	004100a4 	slli.d      	\$a0, \$a1, 0x0
++ 2a4:	004104a4 	slli.d      	\$a0, \$a1, 0x1
++ 2a8:	0041fca4 	slli.d      	\$a0, \$a1, 0x3f
++ 2ac:	004480a4 	srli.w      	\$a0, \$a1, 0x0
++ 2b0:	004484a4 	srli.w      	\$a0, \$a1, 0x1
++ 2b4:	0044fca4 	srli.w      	\$a0, \$a1, 0x1f
++ 2b8:	004500a4 	srli.d      	\$a0, \$a1, 0x0
++ 2bc:	004504a4 	srli.d      	\$a0, \$a1, 0x1
++ 2c0:	0045fca4 	srli.d      	\$a0, \$a1, 0x3f
++ 2c4:	004880a4 	srai.w      	\$a0, \$a1, 0x0
++ 2c8:	004884a4 	srai.w      	\$a0, \$a1, 0x1
++ 2cc:	0048fca4 	srai.w      	\$a0, \$a1, 0x1f
++ 2d0:	004900a4 	srai.d      	\$a0, \$a1, 0x0
++ 2d4:	004904a4 	srai.d      	\$a0, \$a1, 0x1
++ 2d8:	0049fca4 	srai.d      	\$a0, \$a1, 0x3f
++ 2dc:	004c80a4 	rotri.w     	\$a0, \$a1, 0x0
++ 2e0:	004c84a4 	rotri.w     	\$a0, \$a1, 0x1
++ 2e4:	004cfca4 	rotri.w     	\$a0, \$a1, 0x1f
++ 2e8:	004d00a4 	rotri.d     	\$a0, \$a1, 0x0
++ 2ec:	004d04a4 	rotri.d     	\$a0, \$a1, 0x1
++ 2f0:	004dfca4 	rotri.d     	\$a0, \$a1, 0x3f
++ 2f4:	006000a4 	bstrins.w   	\$a0, \$a1, 0x0, 0x0
++ 2f8:	006204a4 	bstrins.w   	\$a0, \$a1, 0x2, 0x1
++ 2fc:	007f00a4 	bstrins.w   	\$a0, \$a1, 0x1f, 0x0
++ 300:	006080a4 	bstrpick.w  	\$a0, \$a1, 0x0, 0x0
++ 304:	006284a4 	bstrpick.w  	\$a0, \$a1, 0x2, 0x1
++ 308:	007f80a4 	bstrpick.w  	\$a0, \$a1, 0x1f, 0x0
++ 30c:	008000a4 	bstrins.d   	\$a0, \$a1, 0x0, 0x0
++ 310:	009f04a4 	bstrins.d   	\$a0, \$a1, 0x1f, 0x1
++ 314:	00a000a4 	bstrins.d   	\$a0, \$a1, 0x20, 0x0
++ 318:	00bf00a4 	bstrins.d   	\$a0, \$a1, 0x3f, 0x0
++ 31c:	00c000a4 	bstrpick.d  	\$a0, \$a1, 0x0, 0x0
++ 320:	00df04a4 	bstrpick.d  	\$a0, \$a1, 0x1f, 0x1
++ 324:	00e000a4 	bstrpick.d  	\$a0, \$a1, 0x20, 0x0
++ 328:	00ff00a4 	bstrpick.d  	\$a0, \$a1, 0x3f, 0x0
++ 32c:	200000a4 	ll.w        	\$a0, \$a1, 0
++ 330:	203ffca4 	ll.w        	\$a0, \$a1, 16380
++ 334:	210000a4 	sc.w        	\$a0, \$a1, 0
++ 338:	213ffca4 	sc.w        	\$a0, \$a1, 16380
++ 33c:	220000a4 	ll.d        	\$a0, \$a1, 0
++ 340:	223ffca4 	ll.d        	\$a0, \$a1, 16380
++ 344:	230000a4 	sc.d        	\$a0, \$a1, 0
++ 348:	233ffca4 	sc.d        	\$a0, \$a1, 16380
++ 34c:	240000a4 	ldptr.w     	\$a0, \$a1, 0
++ 350:	243ffca4 	ldptr.w     	\$a0, \$a1, 16380
++ 354:	250000a4 	stptr.w     	\$a0, \$a1, 0
++ 358:	253ffca4 	stptr.w     	\$a0, \$a1, 16380
++ 35c:	260000a4 	ldptr.d     	\$a0, \$a1, 0
++ 360:	263ffca4 	ldptr.d     	\$a0, \$a1, 16380
++ 364:	270000a4 	stptr.d     	\$a0, \$a1, 0
++ 368:	273ffca4 	stptr.d     	\$a0, \$a1, 16380
++ 36c:	280000a4 	ld.b        	\$a0, \$a1, 0
++ 370:	281ffca4 	ld.b        	\$a0, \$a1, 2047
++ 374:	282004a4 	ld.b        	\$a0, \$a1, -2047
++ 378:	284000a4 	ld.h        	\$a0, \$a1, 0
++ 37c:	285ffca4 	ld.h        	\$a0, \$a1, 2047
++ 380:	286004a4 	ld.h        	\$a0, \$a1, -2047
++ 384:	288000a4 	ld.w        	\$a0, \$a1, 0
++ 388:	289ffca4 	ld.w        	\$a0, \$a1, 2047
++ 38c:	28a004a4 	ld.w        	\$a0, \$a1, -2047
++ 390:	28c000a4 	ld.d        	\$a0, \$a1, 0
++ 394:	28dffca4 	ld.d        	\$a0, \$a1, 2047
++ 398:	28e004a4 	ld.d        	\$a0, \$a1, -2047
++ 39c:	290000a4 	st.b        	\$a0, \$a1, 0
++ 3a0:	291ffca4 	st.b        	\$a0, \$a1, 2047
++ 3a4:	292004a4 	st.b        	\$a0, \$a1, -2047
++ 3a8:	294000a4 	st.h        	\$a0, \$a1, 0
++ 3ac:	295ffca4 	st.h        	\$a0, \$a1, 2047
++ 3b0:	296004a4 	st.h        	\$a0, \$a1, -2047
++ 3b4:	298000a4 	st.w        	\$a0, \$a1, 0
++ 3b8:	299ffca4 	st.w        	\$a0, \$a1, 2047
++ 3bc:	29a004a4 	st.w        	\$a0, \$a1, -2047
++ 3c0:	29c000a4 	st.d        	\$a0, \$a1, 0
++ 3c4:	29dffca4 	st.d        	\$a0, \$a1, 2047
++ 3c8:	29e004a4 	st.d        	\$a0, \$a1, -2047
++ 3cc:	2a0000a4 	ld.bu       	\$a0, \$a1, 0
++ 3d0:	2a1ffca4 	ld.bu       	\$a0, \$a1, 2047
++ 3d4:	2a2004a4 	ld.bu       	\$a0, \$a1, -2047
++ 3d8:	2a4000a4 	ld.hu       	\$a0, \$a1, 0
++ 3dc:	2a5ffca4 	ld.hu       	\$a0, \$a1, 2047
++ 3e0:	2a6004a4 	ld.hu       	\$a0, \$a1, -2047
++ 3e4:	2a8000a4 	ld.wu       	\$a0, \$a1, 0
++ 3e8:	2a9ffca4 	ld.wu       	\$a0, \$a1, 2047
++ 3ec:	2aa004a4 	ld.wu       	\$a0, \$a1, -2047
++ 3f0:	2ac000a0 	preld       	0x0, \$a1, 0
++ 3f4:	2adffcbf 	preld       	0x1f, \$a1, 2047
++ 3f8:	2ae004bf 	preld       	0x1f, \$a1, -2047
++ 3fc:	380018a4 	ldx.b       	\$a0, \$a1, \$a2
++ 400:	380418a4 	ldx.h       	\$a0, \$a1, \$a2
++ 404:	380818a4 	ldx.w       	\$a0, \$a1, \$a2
++ 408:	380c18a4 	ldx.d       	\$a0, \$a1, \$a2
++ 40c:	381018a4 	stx.b       	\$a0, \$a1, \$a2
++ 410:	381418a4 	stx.h       	\$a0, \$a1, \$a2
++ 414:	381818a4 	stx.w       	\$a0, \$a1, \$a2
++ 418:	381c18a4 	stx.d       	\$a0, \$a1, \$a2
++ 41c:	382018a4 	ldx.bu      	\$a0, \$a1, \$a2
++ 420:	382418a4 	ldx.hu      	\$a0, \$a1, \$a2
++ 424:	382818a4 	ldx.wu      	\$a0, \$a1, \$a2
++ 428:	382c18a0 	preldx      	0x0, \$a1, \$a2
++ 42c:	382c18bf 	preldx      	0x1f, \$a1, \$a2
++ 430:	38720000 	dbar        	0x0
++ 434:	38727fff 	dbar        	0x7fff
++ 438:	38728000 	ibar        	0x0
++ 43c:	3872ffff 	ibar        	0x7fff
++ 440:	386014c4 	amswap.w    	\$a0, \$a1, \$a2
++ 444:	386018a4 	amswap.w    	\$a0, \$a2, \$a1
++ 448:	386094c4 	amswap.d    	\$a0, \$a1, \$a2
++ 44c:	386098a4 	amswap.d    	\$a0, \$a2, \$a1
++ 450:	386114c4 	amadd.w     	\$a0, \$a1, \$a2
++ 454:	386118a4 	amadd.w     	\$a0, \$a2, \$a1
++ 458:	386194c4 	amadd.d     	\$a0, \$a1, \$a2
++ 45c:	386198a4 	amadd.d     	\$a0, \$a2, \$a1
++ 460:	386214c4 	amand.w     	\$a0, \$a1, \$a2
++ 464:	386218a4 	amand.w     	\$a0, \$a2, \$a1
++ 468:	386294c4 	amand.d     	\$a0, \$a1, \$a2
++ 46c:	386298a4 	amand.d     	\$a0, \$a2, \$a1
++ 470:	386314c4 	amor.w      	\$a0, \$a1, \$a2
++ 474:	386318a4 	amor.w      	\$a0, \$a2, \$a1
++ 478:	386394c4 	amor.d      	\$a0, \$a1, \$a2
++ 47c:	386398a4 	amor.d      	\$a0, \$a2, \$a1
++ 480:	386414c4 	amxor.w     	\$a0, \$a1, \$a2
++ 484:	386418a4 	amxor.w     	\$a0, \$a2, \$a1
++ 488:	386494c4 	amxor.d     	\$a0, \$a1, \$a2
++ 48c:	386498a4 	amxor.d     	\$a0, \$a2, \$a1
++ 490:	386514c4 	ammax.w     	\$a0, \$a1, \$a2
++ 494:	386518a4 	ammax.w     	\$a0, \$a2, \$a1
++ 498:	386594c4 	ammax.d     	\$a0, \$a1, \$a2
++ 49c:	386598a4 	ammax.d     	\$a0, \$a2, \$a1
++ 4a0:	386614c4 	ammin.w     	\$a0, \$a1, \$a2
++ 4a4:	386618a4 	ammin.w     	\$a0, \$a2, \$a1
++ 4a8:	386694c4 	ammin.d     	\$a0, \$a1, \$a2
++ 4ac:	386698a4 	ammin.d     	\$a0, \$a2, \$a1
++ 4b0:	386714c4 	ammax.wu    	\$a0, \$a1, \$a2
++ 4b4:	386718a4 	ammax.wu    	\$a0, \$a2, \$a1
++ 4b8:	386794c4 	ammax.du    	\$a0, \$a1, \$a2
++ 4bc:	386798a4 	ammax.du    	\$a0, \$a2, \$a1
++ 4c0:	386814c4 	ammin.wu    	\$a0, \$a1, \$a2
++ 4c4:	386818a4 	ammin.wu    	\$a0, \$a2, \$a1
++ 4c8:	386894c4 	ammin.du    	\$a0, \$a1, \$a2
++ 4cc:	386898a4 	ammin.du    	\$a0, \$a2, \$a1
++ 4d0:	386914c4 	amswap_db.w 	\$a0, \$a1, \$a2
++ 4d4:	386918a4 	amswap_db.w 	\$a0, \$a2, \$a1
++ 4d8:	386994c4 	amswap_db.d 	\$a0, \$a1, \$a2
++ 4dc:	386998a4 	amswap_db.d 	\$a0, \$a2, \$a1
++ 4e0:	386a14c4 	amadd_db.w  	\$a0, \$a1, \$a2
++ 4e4:	386a18a4 	amadd_db.w  	\$a0, \$a2, \$a1
++ 4e8:	386a94c4 	amadd_db.d  	\$a0, \$a1, \$a2
++ 4ec:	386a98a4 	amadd_db.d  	\$a0, \$a2, \$a1
++ 4f0:	386b14c4 	amand_db.w  	\$a0, \$a1, \$a2
++ 4f4:	386b18a4 	amand_db.w  	\$a0, \$a2, \$a1
++ 4f8:	386b94c4 	amand_db.d  	\$a0, \$a1, \$a2
++ 4fc:	386b98a4 	amand_db.d  	\$a0, \$a2, \$a1
++ 500:	386c14c4 	amor_db.w   	\$a0, \$a1, \$a2
++ 504:	386c18a4 	amor_db.w   	\$a0, \$a2, \$a1
++ 508:	386c94c4 	amor_db.d   	\$a0, \$a1, \$a2
++ 50c:	386c98a4 	amor_db.d   	\$a0, \$a2, \$a1
++ 510:	386d14c4 	amxor_db.w  	\$a0, \$a1, \$a2
++ 514:	386d18a4 	amxor_db.w  	\$a0, \$a2, \$a1
++ 518:	386d94c4 	amxor_db.d  	\$a0, \$a1, \$a2
++ 51c:	386d98a4 	amxor_db.d  	\$a0, \$a2, \$a1
++ 520:	386e14c4 	ammax_db.w  	\$a0, \$a1, \$a2
++ 524:	386e18a4 	ammax_db.w  	\$a0, \$a2, \$a1
++ 528:	386e94c4 	ammax_db.d  	\$a0, \$a1, \$a2
++ 52c:	386e98a4 	ammax_db.d  	\$a0, \$a2, \$a1
++ 530:	386f14c4 	ammin_db.w  	\$a0, \$a1, \$a2
++ 534:	386f18a4 	ammin_db.w  	\$a0, \$a2, \$a1
++ 538:	386f94c4 	ammin_db.d  	\$a0, \$a1, \$a2
++ 53c:	386f98a4 	ammin_db.d  	\$a0, \$a2, \$a1
++ 540:	387014c4 	ammax_db.wu 	\$a0, \$a1, \$a2
++ 544:	387018a4 	ammax_db.wu 	\$a0, \$a2, \$a1
++ 548:	387094c4 	ammax_db.du 	\$a0, \$a1, \$a2
++ 54c:	387098a4 	ammax_db.du 	\$a0, \$a2, \$a1
++ 550:	387114c4 	ammin_db.wu 	\$a0, \$a1, \$a2
++ 554:	387118a4 	ammin_db.wu 	\$a0, \$a2, \$a1
++ 558:	387194c4 	ammin_db.du 	\$a0, \$a1, \$a2
++ 55c:	387198a4 	ammin_db.du 	\$a0, \$a2, \$a1
++ 560:	387818a4 	ldgt.b      	\$a0, \$a1, \$a2
++ 564:	387898a4 	ldgt.h      	\$a0, \$a1, \$a2
++ 568:	387918a4 	ldgt.w      	\$a0, \$a1, \$a2
++ 56c:	387998a4 	ldgt.d      	\$a0, \$a1, \$a2
++ 570:	387a18a4 	ldle.b      	\$a0, \$a1, \$a2
++ 574:	387a98a4 	ldle.h      	\$a0, \$a1, \$a2
++ 578:	387b18a4 	ldle.w      	\$a0, \$a1, \$a2
++ 57c:	387b98a4 	ldle.d      	\$a0, \$a1, \$a2
++ 580:	387c18a4 	stgt.b      	\$a0, \$a1, \$a2
++ 584:	387c98a4 	stgt.h      	\$a0, \$a1, \$a2
++ 588:	387d18a4 	stgt.w      	\$a0, \$a1, \$a2
++ 58c:	387d98a4 	stgt.d      	\$a0, \$a1, \$a2
++ 590:	387e18a4 	stle.b      	\$a0, \$a1, \$a2
++ 594:	387e98a4 	stle.h      	\$a0, \$a1, \$a2
++ 598:	387f18a4 	stle.w      	\$a0, \$a1, \$a2
++ 59c:	387f98a4 	stle.d      	\$a0, \$a1, \$a2
++ 5a0:	385714c4 	sc.q        	\$a0, \$a1, \$a2
++ 5a4:	385714c4 	sc.q        	\$a0, \$a1, \$a2
++ 5a8:	385780a4 	llacq.w     	\$a0, \$a1
++ 5ac:	385780a4 	llacq.w     	\$a0, \$a1
++ 5b0:	385784a4 	screl.w     	\$a0, \$a1
++ 5b4:	385784a4 	screl.w     	\$a0, \$a1
++ 5b8:	385788a4 	llacq.d     	\$a0, \$a1
++ 5bc:	385788a4 	llacq.d     	\$a0, \$a1
++ 5c0:	38578ca4 	screl.d     	\$a0, \$a1
++ 5c4:	38578ca4 	screl.d     	\$a0, \$a1
++ 5c8:	385814c4 	amcas.b     	\$a0, \$a1, \$a2
++ 5cc:	385818a4 	amcas.b     	\$a0, \$a2, \$a1
++ 5d0:	385894c4 	amcas.h     	\$a0, \$a1, \$a2
++ 5d4:	385898a4 	amcas.h     	\$a0, \$a2, \$a1
++ 5d8:	385914c4 	amcas.w     	\$a0, \$a1, \$a2
++ 5dc:	385918a4 	amcas.w     	\$a0, \$a2, \$a1
++ 5e0:	385994c4 	amcas.d     	\$a0, \$a1, \$a2
++ 5e4:	385998a4 	amcas.d     	\$a0, \$a2, \$a1
++ 5e8:	385a14c4 	amcas_db.b  	\$a0, \$a1, \$a2
++ 5ec:	385a18a4 	amcas_db.b  	\$a0, \$a2, \$a1
++ 5f0:	385a94c4 	amcas_db.h  	\$a0, \$a1, \$a2
++ 5f4:	385a98a4 	amcas_db.h  	\$a0, \$a2, \$a1
++ 5f8:	385b14c4 	amcas_db.w  	\$a0, \$a1, \$a2
++ 5fc:	385b18a4 	amcas_db.w  	\$a0, \$a2, \$a1
++ 600:	385b94c4 	amcas_db.d  	\$a0, \$a1, \$a2
++ 604:	385b98a4 	amcas_db.d  	\$a0, \$a2, \$a1
++ 608:	385c14c4 	amswap.b    	\$a0, \$a1, \$a2
++ 60c:	385c18a4 	amswap.b    	\$a0, \$a2, \$a1
++ 610:	385c94c4 	amswap.h    	\$a0, \$a1, \$a2
++ 614:	385c98a4 	amswap.h    	\$a0, \$a2, \$a1
++ 618:	385d14c4 	amadd.b     	\$a0, \$a1, \$a2
++ 61c:	385d18a4 	amadd.b     	\$a0, \$a2, \$a1
++ 620:	385d94c4 	amadd.h     	\$a0, \$a1, \$a2
++ 624:	385d98a4 	amadd.h     	\$a0, \$a2, \$a1
++ 628:	385e14c4 	amswap_db.b 	\$a0, \$a1, \$a2
++ 62c:	385e18a4 	amswap_db.b 	\$a0, \$a2, \$a1
++ 630:	385e94c4 	amswap_db.h 	\$a0, \$a1, \$a2
++ 634:	385e98a4 	amswap_db.h 	\$a0, \$a2, \$a1
++ 638:	385f14c4 	amadd_db.b  	\$a0, \$a1, \$a2
++ 63c:	385f18a4 	amadd_db.b  	\$a0, \$a2, \$a1
++ 640:	385f94c4 	amadd_db.h  	\$a0, \$a1, \$a2
++ 644:	385f98a4 	amadd_db.h  	\$a0, \$a2, \$a1
++
++0+648 <.L1>:
++ 648:	03400000 	andi        	\$zero, \$zero, 0x0
++ 64c:	43fffc9f 	beqz        	\$a0, -4	# 648 <.L1>
++ 650:	47fff89f 	bnez        	\$a0, -8	# 648 <.L1>
++ 654:	53fff7ff 	b           	-12	# 648 <.L1>
++ 658:	57fff3ff 	bl          	-16	# 648 <.L1>
++ 65c:	5bffec85 	beq         	\$a0, \$a1, -20	# 648 <.L1>
++ 660:	5fffe885 	bne         	\$a0, \$a1, -24	# 648 <.L1>
++ 664:	63ffe485 	blt         	\$a0, \$a1, -28	# 648 <.L1>
++ 668:	63ffe0a4 	blt         	\$a1, \$a0, -32	# 648 <.L1>
++ 66c:	67ffdc85 	bge         	\$a0, \$a1, -36	# 648 <.L1>
++ 670:	67ffd8a4 	bge         	\$a1, \$a0, -40	# 648 <.L1>
++ 674:	6bffd485 	bltu        	\$a0, \$a1, -44	# 648 <.L1>
++ 678:	6bffd0a4 	bltu        	\$a1, \$a0, -48	# 648 <.L1>
++ 67c:	6fffcc85 	bgeu        	\$a0, \$a1, -52	# 648 <.L1>
++ 680:	6fffc8a4 	bgeu        	\$a1, \$a0, -56	# 648 <.L1>
++ 684:	4c000080 	jirl        	\$zero, \$a0, 0
+diff --git a/gas/testsuite/gas/loongarch/insn_int64.s b/gas/testsuite/gas/loongarch/insn_int64.s
+new file mode 100644
+index 00000000..f8089517
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_int64.s
+@@ -0,0 +1,440 @@
++# imm_op
++slti  $r4,$r5,0
++slti  $r4,$r5,0x7ff
++slti  $r4,$r5,-0x7ff
++sltui  $r4,$r5,0
++sltui  $r4,$r5,0x7ff
++sltui  $r4,$r5,-0x7ff
++addi.w  $r4,$r5,0
++addi.w  $r4,$r5,0x7ff
++addi.w  $r4,$r5,-0x7ff
++addi.d  $r4,$r5,0
++addi.d  $r4,$r5,0x7ff
++addi.d  $r4,$r5,-0x7ff
++lu52i.d  $r4,$r5,0
++lu52i.d  $r4,$r5,0x7ff
++lu52i.d  $r4,$r5,-0x7ff
++andi  $r4,$r5,0
++andi  $r4,$r5,0x7ff
++ori  $r4,$r5,0
++ori  $r4,$r5,0x7ff
++xori  $r4,$r5,0
++xori  $r4,$r5,0x7ff
++addu16i.d  $r4,$r5,0
++addu16i.d  $r4,$r5,0x7fff
++addu16i.d  $r4,$r5,-0x7fff
++lu12i.w  $r4,0
++lu12i.w  $r4,0x7ffff
++lu32i.d  $r4,-0x7ffff
++pcaddi  $r4,0
++pcaddi  $r4,0x7ffff
++pcaddi  $r4,-0x80000
++pcalau12i  $r4,0
++pcalau12i  $r4,0x7ffff
++pcalau12i  $r4,-0x7ffff
++pcaddu12i  $r4,0
++pcaddu12i  $r4,0x7ffff
++pcaddu12i  $r4,-0x7ffff
++pcaddu18i  $r4,0
++pcaddu18i  $r4,0x7ffff
++pcaddu18i  $r4,-0x7ffff
++
++# imm_ins
++.equ a, 0x123
++.equ b, 0xfffff00000
++.equ c, 0xfffffffffff
++.equ d, 2
++.equ e,0x100
++
++alsl.w $r11,$r12,$r13,d
++alsl.wu $r11,$r12,$r13,d
++bytepick.w $r11,$r12,$r13,d
++bytepick.d $r11,$r12,$r13,d
++
++break d
++dbcl d
++syscall d
++
++alsl.d $r11,$r12, $r13,d
++slli.w $r11,$r12,d
++slli.d $r11,$r12,d
++srli.w $r11,$r12,d
++srli.d $r12,$r13,d
++srai.w $r12,$r13,d
++srai.d $r12,$r13,d
++
++bstrins.w $r12,$r13,d,d
++bstrins.d $r12,$r13,d,d
++bstrpick.d $r12,$r13,d,d
++bstrpick.d $r12,$r13,d,d
++
++slti $r12,$r13,a
++sltui $r12,$r13,a
++addi.w $r12,$r13,a
++addi.d $r12,$r13,a
++lu52i.d $r12,$r13,a
++andi $r12,$r13,d
++ori  $r12,$r13,d
++xori $r12,$r13,d
++addu16i.d $r12,$r13,d
++lu12i.w $r12,a
++lu32i.d $r12,a
++pcaddi $r12,a
++pcalau12i $r12,a
++pcaddu12i $r12,a
++pcaddu18i $r12,a
++
++csrrd $r12,a
++csrwr $r12,a
++csrxchg $r12,$r13,d
++cacop d,$r13,d
++lddir $r12,$r13,d
++ldpte $r12,d
++
++invtlb d,$r13,$r14
++
++# fix_op
++clo.w  $r4,$r5
++clz.w  $r4,$r5
++cto.w  $r4,$r5
++ctz.w  $r4,$r5
++clo.d  $r4,$r5
++clz.d  $r4,$r5
++cto.d  $r4,$r5
++ctz.d  $r4,$r5
++revb.2h  $r4,$r5
++revb.4h  $r4,$r5
++revb.2w  $r4,$r5
++revb.d  $r4,$r5
++revh.2w  $r4,$r5
++revh.d  $r4,$r5
++bitrev.4b  $r4,$r5
++bitrev.8b  $r4,$r5
++bitrev.w  $r4,$r5
++bitrev.d  $r4,$r5
++ext.w.h  $r4,$r5
++ext.w.b  $r4,$r5
++rdtimel.w  $r4,$r5
++rdtimeh.w  $r4,$r5
++rdtime.d  $r4,$r5
++cpucfg  $r4,$r5
++asrtle.d  $r5,$r6
++asrtgt.d  $r5,$r6
++alsl.w  $r4,$r5,$r6,1
++alsl.w  $r4,$r5,$r6,4
++alsl.wu  $r4,$r5,$r6,1
++alsl.wu  $r4,$r5,$r6,4
++bytepick.w  $r4,$r5,$r6,0
++bytepick.w  $r4,$r5,$r6,3
++bytepick.d  $r4,$r5,$r6,0
++bytepick.d  $r4,$r5,$r6,7
++add.w  $r4,$r5,$r6
++add.d  $r4,$r5,$r6
++sub.w  $r4,$r5,$r6
++sub.d  $r4,$r5,$r6
++slt  $r4,$r5,$r6
++sltu  $r4,$r5,$r6
++maskeqz  $r4,$r5,$r6
++masknez  $r4,$r5,$r6
++nor  $r4,$r5,$r6
++and  $r4,$r5,$r6
++or  $r4,$r5,$r6
++xor  $r4,$r5,$r6
++orn  $r4,$r5,$r6
++andn  $r4,$r5,$r6
++
++# load_store
++sll.w  $r4,$r5,$r6
++srl.w  $r4,$r5,$r6
++sra.w  $r4,$r5,$r6
++sll.d  $r4,$r5,$r6
++srl.d  $r4,$r5,$r6
++sra.d  $r4,$r5,$r6
++rotr.w  $r4,$r5,$r6
++rotr.d  $r4,$r5,$r6
++mul.w  $r4,$r5,$r6
++mulh.w  $r4,$r5,$r6
++mulh.wu  $r4,$r5,$r6
++mul.d  $r4,$r5,$r6
++mulh.d  $r4,$r5,$r6
++mulh.du  $r4,$r5,$r6
++mulw.d.w  $r4,$r5,$r6
++mulw.d.wu  $r4,$r5,$r6
++div.w  $r4,$r5,$r6
++mod.w  $r4,$r5,$r6
++div.wu  $r4,$r5,$r6
++mod.wu  $r4,$r5,$r6
++div.d  $r4,$r5,$r6
++mod.d  $r4,$r5,$r6
++div.du  $r4,$r5,$r6
++mod.du  $r4,$r5,$r6
++crc.w.b.w  $r4,$r5,$r6
++crc.w.h.w  $r4,$r5,$r6
++crc.w.w.w  $r4,$r5,$r6
++crc.w.d.w  $r4,$r5,$r6
++crcc.w.b.w  $r4,$r5,$r6
++crcc.w.h.w  $r4,$r5,$r6
++crcc.w.w.w  $r4,$r5,$r6
++crcc.w.d.w  $r4,$r5,$r6
++break  0
++break  0x7fff
++dbcl   0
++dbcl   0x7fff
++alsl.d  $r4,$r5,$r6,1
++alsl.d  $r4,$r5,$r6,4
++slli.w  $r4,$r5,0
++slli.w  $r4,$r5,1
++slli.w  $r4,$r5,0x1f
++slli.d  $r4,$r5,0
++slli.d  $r4,$r5,1
++slli.d  $r4,$r5,0x3f
++srli.w  $r4,$r5,0
++srli.w  $r4,$r5,1
++srli.w  $r4,$r5,0x1f
++srli.d  $r4,$r5,0
++srli.d  $r4,$r5,1
++srli.d  $r4,$r5,0x3f
++srai.w  $r4,$r5,0
++srai.w  $r4,$r5,1
++srai.w  $r4,$r5,0x1f
++srai.d  $r4,$r5,0
++srai.d  $r4,$r5,1
++srai.d  $r4,$r5,0x3f
++rotri.w  $r4,$r5,0
++rotri.w  $r4,$r5,1
++rotri.w  $r4,$r5,0x1f
++rotri.d  $r4,$r5,0
++rotri.d  $r4,$r5,1
++rotri.d  $r4,$r5,0x3f
++bstrins.w  $r4,$r5,0,0
++bstrins.w  $r4,$r5,2,1
++bstrins.w  $r4,$r5,31,0
++bstrpick.w  $r4,$r5,0,0
++bstrpick.w  $r4,$r5,2,1
++bstrpick.w  $r4,$r5,31,0
++bstrins.d  $r4,$r5,0,0
++bstrins.d  $r4,$r5,31,1
++bstrins.d  $r4,$r5,32,0
++bstrins.d  $r4,$r5,63,0
++bstrpick.d  $r4,$r5,0,0
++bstrpick.d  $r4,$r5,31,1
++bstrpick.d  $r4,$r5,32,0
++bstrpick.d  $r4,$r5,63,0
++ll.w  $r4,$r5,0
++ll.w  $r4,$r5,0x3ffc
++sc.w  $r4,$r5,0
++sc.w  $r4,$r5,0x3ffc
++ll.d  $r4,$r5,0
++ll.d  $r4,$r5,0x3ffc
++sc.d  $r4,$r5,0
++sc.d  $r4,$r5,0x3ffc
++ldptr.w  $r4,$r5,0
++ldptr.w  $r4,$r5,0x3ffc
++stptr.w  $r4,$r5,0
++stptr.w  $r4,$r5,0x3ffc
++ldptr.d  $r4,$r5,0
++ldptr.d  $r4,$r5,0x3ffc
++stptr.d  $r4,$r5,0
++stptr.d  $r4,$r5,0x3ffc
++ld.b  $r4,$r5,0
++ld.b  $r4,$r5,0x7ff
++ld.b  $r4,$r5,-0x7ff
++ld.h  $r4,$r5,0
++ld.h  $r4,$r5,0x7ff
++ld.h  $r4,$r5,-0x7ff
++ld.w  $r4,$r5,0
++ld.w  $r4,$r5,0x7ff
++ld.w  $r4,$r5,-0x7ff
++ld.d  $r4,$r5,0
++ld.d  $r4,$r5,0x7ff
++ld.d  $r4,$r5,-0x7ff
++st.b  $r4,$r5,0
++st.b  $r4,$r5,0x7ff
++st.b  $r4,$r5,-0x7ff
++st.h  $r4,$r5,0
++st.h  $r4,$r5,0x7ff
++st.h  $r4,$r5,-0x7ff
++st.w  $r4,$r5,0
++st.w  $r4,$r5,0x7ff
++st.w  $r4,$r5,-0x7ff
++st.d  $r4,$r5,0
++st.d  $r4,$r5,0x7ff
++st.d  $r4,$r5,-0x7ff
++ld.bu  $r4,$r5,0
++ld.bu  $r4,$r5,0x7ff
++ld.bu  $r4,$r5,-0x7ff
++ld.hu  $r4,$r5,0
++ld.hu  $r4,$r5,0x7ff
++ld.hu  $r4,$r5,-0x7ff
++ld.wu  $r4,$r5,0
++ld.wu  $r4,$r5,0x7ff
++ld.wu  $r4,$r5,-0x7ff
++preld  0,$r5,0
++preld  31,$r5,0x7ff
++preld  31,$r5,-0x7ff
++ldx.b  $r4,$r5,$r6
++ldx.h  $r4,$r5,$r6
++ldx.w  $r4,$r5,$r6
++ldx.d  $r4,$r5,$r6
++stx.b  $r4,$r5,$r6
++stx.h  $r4,$r5,$r6
++stx.w  $r4,$r5,$r6
++stx.d  $r4,$r5,$r6
++ldx.bu  $r4,$r5,$r6
++ldx.hu  $r4,$r5,$r6
++ldx.wu  $r4,$r5,$r6
++preldx  0,$r5,$r6
++preldx  31,$r5,$r6
++dbar  0
++dbar  0x7fff
++ibar  0
++ibar  0x7fff
++amswap.w  $r4,$r5,$r6,0
++amswap.w  $r4,$r6,$r5
++amswap.d  $r4,$r5,$r6,0
++amswap.d  $r4,$r6,$r5
++amadd.w  $r4,$r5,$r6,0
++amadd.w  $r4,$r6,$r5
++amadd.d  $r4,$r5,$r6,0
++amadd.d  $r4,$r6,$r5
++amand.w  $r4,$r5,$r6,0
++amand.w  $r4,$r6,$r5
++amand.d  $r4,$r5,$r6,0
++amand.d  $r4,$r6,$r5
++amor.w  $r4,$r5,$r6,0
++amor.w  $r4,$r6,$r5
++amor.d  $r4,$r5,$r6,0
++amor.d  $r4,$r6,$r5
++amxor.w  $r4,$r5,$r6,0
++amxor.w  $r4,$r6,$r5
++amxor.d  $r4,$r5,$r6,0
++amxor.d  $r4,$r6,$r5
++ammax.w  $r4,$r5,$r6,0
++ammax.w  $r4,$r6,$r5
++ammax.d  $r4,$r5,$r6,0
++ammax.d  $r4,$r6,$r5
++ammin.w  $r4,$r5,$r6,0
++ammin.w  $r4,$r6,$r5
++ammin.d  $r4,$r5,$r6,0
++ammin.d  $r4,$r6,$r5
++ammax.wu  $r4,$r5,$r6,0
++ammax.wu  $r4,$r6,$r5
++ammax.du  $r4,$r5,$r6,0
++ammax.du  $r4,$r6,$r5
++ammin.wu  $r4,$r5,$r6,0
++ammin.wu  $r4,$r6,$r5
++ammin.du  $r4,$r5,$r6,0
++ammin.du  $r4,$r6,$r5
++amswap_db.w  $r4,$r5,$r6,0
++amswap_db.w  $r4,$r6,$r5
++amswap_db.d  $r4,$r5,$r6,0
++amswap_db.d  $r4,$r6,$r5
++amadd_db.w  $r4,$r5,$r6,0
++amadd_db.w  $r4,$r6,$r5
++amadd_db.d  $r4,$r5,$r6,0
++amadd_db.d  $r4,$r6,$r5
++amand_db.w  $r4,$r5,$r6,0
++amand_db.w  $r4,$r6,$r5
++amand_db.d  $r4,$r5,$r6,0
++amand_db.d  $r4,$r6,$r5
++amor_db.w  $r4,$r5,$r6,0
++amor_db.w  $r4,$r6,$r5
++amor_db.d  $r4,$r5,$r6,0
++amor_db.d  $r4,$r6,$r5
++amxor_db.w  $r4,$r5,$r6,0
++amxor_db.w  $r4,$r6,$r5
++amxor_db.d  $r4,$r5,$r6,0
++amxor_db.d  $r4,$r6,$r5
++ammax_db.w  $r4,$r5,$r6,0
++ammax_db.w  $r4,$r6,$r5
++ammax_db.d  $r4,$r5,$r6,0
++ammax_db.d  $r4,$r6,$r5
++ammin_db.w  $r4,$r5,$r6,0
++ammin_db.w  $r4,$r6,$r5
++ammin_db.d  $r4,$r5,$r6,0
++ammin_db.d  $r4,$r6,$r5
++ammax_db.wu  $r4,$r5,$r6,0
++ammax_db.wu  $r4,$r6,$r5
++ammax_db.du  $r4,$r5,$r6,0
++ammax_db.du  $r4,$r6,$r5
++ammin_db.wu  $r4,$r5,$r6,0
++ammin_db.wu  $r4,$r6,$r5
++ammin_db.du  $r4,$r5,$r6,0
++ammin_db.du  $r4,$r6,$r5
++ldgt.b  $r4,$r5,$r6
++ldgt.h  $r4,$r5,$r6
++ldgt.w  $r4,$r5,$r6
++ldgt.d  $r4,$r5,$r6
++ldle.b  $r4,$r5,$r6
++ldle.h  $r4,$r5,$r6
++ldle.w  $r4,$r5,$r6
++ldle.d  $r4,$r5,$r6
++stgt.b  $r4,$r5,$r6
++stgt.h  $r4,$r5,$r6
++stgt.w  $r4,$r5,$r6
++stgt.d  $r4,$r5,$r6
++stle.b  $r4,$r5,$r6
++stle.h  $r4,$r5,$r6
++stle.w  $r4,$r5,$r6
++stle.d  $r4,$r5,$r6
++sc.q  $r4,$r5,$r6,0
++sc.q  $r4,$r5,$r6
++llacq.w  $r4,$r5,0
++llacq.w  $r4,$r5
++screl.w  $r4,$r5,0
++screl.w  $r4,$r5
++llacq.d  $r4,$r5,0
++llacq.d  $r4,$r5
++screl.d  $r4,$r5,0
++screl.d  $r4,$r5
++amcas.b  $r4,$r5,$r6,0
++amcas.b  $r4,$r6,$r5
++amcas.h  $r4,$r5,$r6,0
++amcas.h  $r4,$r6,$r5
++amcas.w  $r4,$r5,$r6,0
++amcas.w  $r4,$r6,$r5
++amcas.d  $r4,$r5,$r6,0
++amcas.d  $r4,$r6,$r5
++amcas_db.b  $r4,$r5,$r6,0
++amcas_db.b  $r4,$r6,$r5
++amcas_db.h  $r4,$r5,$r6,0
++amcas_db.h  $r4,$r6,$r5
++amcas_db.w  $r4,$r5,$r6,0
++amcas_db.w  $r4,$r6,$r5
++amcas_db.d  $r4,$r5,$r6,0
++amcas_db.d  $r4,$r6,$r5
++amswap.b  $r4,$r5,$r6,0
++amswap.b  $r4,$r6,$r5
++amswap.h  $r4,$r5,$r6,0
++amswap.h  $r4,$r6,$r5
++amadd.b  $r4,$r5,$r6,0
++amadd.b  $r4,$r6,$r5
++amadd.h  $r4,$r5,$r6,0
++amadd.h  $r4,$r6,$r5
++amswap_db.b  $r4,$r5,$r6,0
++amswap_db.b  $r4,$r6,$r5
++amswap_db.h  $r4,$r5,$r6,0
++amswap_db.h  $r4,$r6,$r5
++amadd_db.b  $r4,$r5,$r6,0
++amadd_db.b  $r4,$r6,$r5
++amadd_db.h  $r4,$r5,$r6,0
++amadd_db.h  $r4,$r6,$r5
++
++# jmp_op
++.L1:
++nop
++beqz  $r4,.L1
++bnez  $r4,.L1
++b  .L1
++bl  .L1
++beq $r4,$r5,.L1
++bne $r4,$r5,.L1
++blt $r4,$r5,.L1
++bgt $r4,$r5,.L1
++bge $r4,$r5,.L1
++ble $r4,$r5,.L1
++bltu  $r4,$r5,.L1
++bgtu  $r4,$r5,.L1
++bgeu  $r4,$r5,.L1
++bleu  $r4,$r5,.L1
++jirl  $zero,$r4,0
+-- 
+2.33.0
+

@@ -1,0 +1,128 @@
+From d7c082ef88547077b24d3b27144daf4ce4e442f4 Mon Sep 17 00:00:00 2001
+From: Jinyang He <hejinyang@loongson.cn>
+Date: Mon, 8 Jul 2024 11:27:52 +0800
+Subject: [PATCH 101/123] LoongArch: Not alloc dynamic relocs if symbol is
+ absolute
+
+The absolute symbol should be resolved to const when link to dso or exe.
+Alloc dynamic relocs will cause extra space and R_LARCH_NONE finally.
+---
+ bfd/elfnn-loongarch.c                              | 14 +++++++-------
+ ld/testsuite/ld-loongarch-elf/abssym.s             |  3 +++
+ ld/testsuite/ld-loongarch-elf/abssym_pie.d         |  6 ++++++
+ ld/testsuite/ld-loongarch-elf/abssym_shared.d      |  6 ++++++
+ ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp |  2 ++
+ 5 files changed, 24 insertions(+), 7 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abssym.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abssym_pie.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abssym_shared.d
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index d11189b4..af4d8baa 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -899,6 +899,7 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+       unsigned int r_type;
+       unsigned int r_symndx;
+       struct elf_link_hash_entry *h;
++      bool is_abs_symbol = false;
+       Elf_Internal_Sym *isym = NULL;
+ 
+       r_symndx = ELFNN_R_SYM (rel->r_info);
+@@ -917,6 +918,7 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	  if (isym == NULL)
+ 	    return false;
+ 
++	  is_abs_symbol = isym->st_shndx == SHN_ABS;
+ 	  if (ELF_ST_TYPE (isym->st_info) == STT_GNU_IFUNC)
+ 	    {
+ 	      h = elfNN_loongarch_get_local_sym_hash (htab, abfd, rel, true);
+@@ -935,6 +937,7 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	  while (h->root.type == bfd_link_hash_indirect
+ 		 || h->root.type == bfd_link_hash_warning)
+ 	    h = (struct elf_link_hash_entry *) h->root.u.i.link;
++	  is_abs_symbol = bfd_is_abs_symbol (&h->root);
+ 	}
+ 
+       /* It is referenced by a non-shared object.  */
+@@ -1142,13 +1145,6 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	      && bfd_link_pic (info)
+ 	      && (sec->flags & SEC_ALLOC) != 0)
+ 	    {
+-	      bool is_abs_symbol = false;
+-
+-	      if (r_symndx < symtab_hdr->sh_info)
+-		is_abs_symbol = isym->st_shndx == SHN_ABS;
+-	      else
+-		is_abs_symbol = bfd_is_abs_symbol (&h->root);
+-
+ 	      if (!is_abs_symbol)
+ 		{
+ 		  _bfd_error_handler
+@@ -1165,6 +1161,10 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	case R_LARCH_JUMP_SLOT:
+ 	case R_LARCH_64:
+ 
++	  /* Resolved to const.  */
++	  if (is_abs_symbol)
++	    break;
++
+ 	  need_dynreloc = 1;
+ 
+ 	  /* If resolved symbol is defined in this object,
+diff --git a/ld/testsuite/ld-loongarch-elf/abssym.s b/ld/testsuite/ld-loongarch-elf/abssym.s
+new file mode 100644
+index 00000000..3eacc766
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abssym.s
+@@ -0,0 +1,3 @@
++.section .data,"aw"
++.quad _size8
++.word _size4
+diff --git a/ld/testsuite/ld-loongarch-elf/abssym_pie.d b/ld/testsuite/ld-loongarch-elf/abssym_pie.d
+new file mode 100644
+index 00000000..dfc3e35b
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abssym_pie.d
+@@ -0,0 +1,6 @@
++#source: abssym.s
++#ld: -pie -e 0 --defsym _size8=0 --defsym _size4=0
++#readelf: -r
++#...
++There are no relocations in this file.
++#...
+diff --git a/ld/testsuite/ld-loongarch-elf/abssym_shared.d b/ld/testsuite/ld-loongarch-elf/abssym_shared.d
+new file mode 100644
+index 00000000..2db7e890
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abssym_shared.d
+@@ -0,0 +1,6 @@
++#source: abssym.s
++#ld: -shared --defsym _size8=0 --defsym _size4=0
++#readelf: -r
++#...
++There are no relocations in this file.
++#...
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 2be67651..032b9bad 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -141,6 +141,7 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "relr-discard-shared"
+     run_dump_test "relr-got-shared"
+     run_dump_test "relr-text-shared"
++    run_dump_test "abssym_shared"
+   }
+ 
+   if [check_pie_support] {
+@@ -149,6 +150,7 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "relr-discard-pie"
+     run_dump_test "relr-got-pie"
+     run_dump_test "relr-text-pie"
++    run_dump_test "abssym_pie"
+   }
+ 
+   run_dump_test "max_imm_b16"
+-- 
+2.33.0
+

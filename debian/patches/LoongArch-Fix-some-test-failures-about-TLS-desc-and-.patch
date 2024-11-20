@@ -1,0 +1,146 @@
+From ced17161d4aac5b19c9aca8e6183607a83fc1774 Mon Sep 17 00:00:00 2001
+From: Xi Ruoyao <xry111@xry111.site>
+Date: Sat, 20 Jan 2024 00:38:24 +0800
+Subject: [PATCH 048/123] LoongArch: Fix some test failures about TLS desc and
+ TLS relaxation
+
+There are two issues causing 11 test failures:
+
+1. The TLS desc tests are matching the entire disassemble of a linked
+   executable.  But if ld is configured --enable-default-hash-style=gnu
+   (note that most modern distros use this option), the layout of the
+   linked executables will be different and the immediate operands in
+   the linked executables will also be different.  So we add
+   "--hash-style=both" for these tests to cancel the effect of
+   --enable-default-hash-style=gnu, like [x86_64 mark-plt tests].
+2. By default objdump disassemble uses [pseudo-instructions] so "addi.w"
+   is outputed as "li.w", causing mismatches in TLS relaxation tests.
+   We can turn off the pseudo-instruction usage in objdump using "-M
+   no-aliases" to fix them.
+
+[x86_64 mark-plt tests]: 16666ccc91295d1568c5c2cb0e7600694840dfd9
+[pseudo-instructions]: 17f9439038257b1de0c130a416a9a7645c653cb0
+
+Signed-off-by: Xi Ruoyao <xry111@xry111.site>
+---
+ ld/testsuite/ld-loongarch-elf/desc-ie.d      |  2 +-
+ ld/testsuite/ld-loongarch-elf/desc-norelax.d |  2 +-
+ ld/testsuite/ld-loongarch-elf/desc-relax.d   |  2 +-
+ ld/testsuite/ld-loongarch-elf/relax.exp      | 14 +++++++-------
+ ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d  |  2 +-
+ 5 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-ie.d b/ld/testsuite/ld-loongarch-elf/desc-ie.d
+index d1acbfc6..32e35050 100644
+--- a/ld/testsuite/ld-loongarch-elf/desc-ie.d
++++ b/ld/testsuite/ld-loongarch-elf/desc-ie.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -shared -z norelro -e 0x0
++#ld: -shared -z norelro -e 0x0 --hash-style=both
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-norelax.d b/ld/testsuite/ld-loongarch-elf/desc-norelax.d
+index 32ce3e5e..e4863dda 100644
+--- a/ld/testsuite/ld-loongarch-elf/desc-norelax.d
++++ b/ld/testsuite/ld-loongarch-elf/desc-norelax.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -z norelro -shared --section-start=.got=0x1ff000
++#ld: -z norelro -shared --section-start=.got=0x1ff000 --hash-style=both
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/desc-relax.d b/ld/testsuite/ld-loongarch-elf/desc-relax.d
+index ce53d317..c885953c 100644
+--- a/ld/testsuite/ld-loongarch-elf/desc-relax.d
++++ b/ld/testsuite/ld-loongarch-elf/desc-relax.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -z norelro -shared
++#ld: -z norelro -shared --hash-style=both
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index 107e5a56..c537976a 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -104,7 +104,7 @@ if [istarget loongarch64-*-*] {
+ 	]
+ 
+       if [file exist "tmpdir/relax-tls-le"] {
+-	set objdump_output1 [run_host_cmd "objdump" "-d tmpdir/relax-tls-le"]
++	set objdump_output1 [run_host_cmd "objdump" "-d tmpdir/relax-tls-le -M no-aliases"]
+ 	if { [ regexp ".addi.*st.*" $objdump_output1] } {
+ 	  pass "loongarch relax success"
+ 	} {
+@@ -125,7 +125,7 @@ if [istarget loongarch64-*-*] {
+ 	]
+ 
+       if [file exist "tmpdir/no-relax-tls-le"] {
+-	set objdump_output2 [run_host_cmd "objdump" "-d tmpdir/no-relax-tls-le"]
++	set objdump_output2 [run_host_cmd "objdump" "-d tmpdir/no-relax-tls-le -M no-aliases"]
+ 	if { [ regexp ".*lu12i.*add.*addi.*st.*" $objdump_output2] } {
+ 	  pass "loongarch no-relax success"
+ 	} {
+@@ -146,7 +146,7 @@ if [istarget loongarch64-*-*] {
+ 	]
+ 
+       if [file exist "tmpdir/old-tls-le"] {
+-	set objdump_output3 [run_host_cmd "objdump" "-d tmpdir/old-tls-le"]
++	set objdump_output3 [run_host_cmd "objdump" "-d tmpdir/old-tls-le -M no-aliases"]
+ 	if { [ regexp ".*lu12i.*ori.*add.*addi.*stptr.*" $objdump_output3] } {
+ 	  pass "loongarch old tls le success"
+ 	} {
+@@ -167,7 +167,7 @@ if [istarget loongarch64-*-*] {
+ 	]
+ 
+       if [file exist "tmpdir/realx-compatible"] {
+-	set objdump_output4 [run_host_cmd "objdump" "-d tmpdir/realx-compatible"]
++	set objdump_output4 [run_host_cmd "objdump" "-d tmpdir/realx-compatible -M no-aliases"]
+ 	if { [ regexp ".addi.*st.*" $objdump_output4] && \
+ 	     [ regexp ".*lu12i.*ori.*add.*addi.*stptr.*" $objdump_output4] } {
+ 	  pass "loongarch tls le relax compatible check success"
+@@ -188,7 +188,7 @@ if [istarget loongarch64-*-*] {
+ 	    ] \
+ 	]
+       if [file exist "tmpdir/no-realx-compatible"] {
+-	set objdump_output4 [run_host_cmd "objdump" "-d tmpdir/no-realx-compatible"]
++	set objdump_output4 [run_host_cmd "objdump" "-d tmpdir/no-realx-compatible -M no-aliases"]
+ 	if { [ regexp ".*lu12i.*add.*addi.*st.*" $objdump_output4] && \
+ 	     [ regexp ".*lu12i.*ori.*add.*addi.*stptr.*" $objdump_output4] } {
+ 	  pass "loongarch tls le no-relax compatible check success"
+@@ -210,7 +210,7 @@ if [istarget loongarch64-*-*] {
+ 	]
+ 
+       if [file exist "tmpdir/relax-bound-check-tls-le"] {
+-	set objdump_output5 [run_host_cmd "objdump" "-d tmpdir/relax-bound-check-tls-le"]
++	set objdump_output5 [run_host_cmd "objdump" "-d tmpdir/relax-bound-check-tls-le -M no-aliases"]
+ 	if { [ regexp ".*lu12i.*add.*addi.*st.*" $objdump_output5] && \
+ 	     [ regexp ".addi.*st.*" $objdump_output5] } {
+ 	  pass "loongarch no-relax success"
+@@ -232,7 +232,7 @@ if [istarget loongarch64-*-*] {
+ 	]
+ 
+       if [file exist "tmpdir/no-relax-bound-check-tls-le"] {
+-	set objdump_output5 [run_host_cmd "objdump" "-d tmpdir/no-relax-bound-check-tls-le"]
++	set objdump_output5 [run_host_cmd "objdump" "-d tmpdir/no-relax-bound-check-tls-le -M no-aliases"]
+ 	if { [ regexp ".*addi.*st.*" $objdump_output5] } {
+ 	  pass "loongarch no-relax success"
+ 	} {
+diff --git a/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d b/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d
+index 667ad746..453902d1 100644
+--- a/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d
++++ b/ld/testsuite/ld-loongarch-elf/tlsdesc-dso.d
+@@ -1,5 +1,5 @@
+ #as:
+-#ld: -shared -z norelro
++#ld: -shared -z norelro --hash-style=both
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-- 
+2.33.0
+

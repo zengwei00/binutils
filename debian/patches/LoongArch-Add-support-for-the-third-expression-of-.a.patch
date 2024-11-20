@@ -1,0 +1,445 @@
+From 3df3fec5862a2d6adec7dc469e7c53596e0ca464 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Fri, 8 Dec 2023 15:15:50 +0800
+Subject: [PATCH 023/123] LoongArch: Add support for the third expression of
+ .align for R_LARCH_ALIGN
+
+If the symbol index is not zero, the addend is used to represent
+the first and the third expressions of the .align.
+
+The lowest 8 bits are used to represent the first expression.
+Other bits are used to represent the third expression.
+
+The addend of R_LARCH_ALIGN for ".align 5, ,4" is 0x405.
+The addend of R_LARCH_ALIGN for ".balign 32, ,4" is 0x405.
+---
+ bfd/elfnn-loongarch.c                         | 71 ++++++++++++-------
+ bfd/elfxx-loongarch.c                         | 10 ++-
+ gas/config/tc-loongarch.c                     | 20 ++++--
+ gas/config/tc-loongarch.h                     |  4 +-
+ gas/testsuite/gas/loongarch/relax_align.d     | 46 +++++++-----
+ gas/testsuite/gas/loongarch/relax_align.s     |  4 +-
+ ld/testsuite/ld-elf/anno-sym.d                |  2 +
+ ld/testsuite/ld-loongarch-elf/anno-sym.d      |  7 ++
+ ld/testsuite/ld-loongarch-elf/anno-sym.l      |  4 ++
+ ld/testsuite/ld-loongarch-elf/anno-sym.s      | 13 ++++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     |  1 +
+ ld/testsuite/ld-loongarch-elf/relax-align.dd  |  5 +-
+ ld/testsuite/ld-loongarch-elf/relax-align.s   |  5 +-
+ ld/testsuite/ld-loongarch-elf/relax.exp       |  2 +-
+ 14 files changed, 134 insertions(+), 60 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/anno-sym.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/anno-sym.l
+ create mode 100644 ld/testsuite/ld-loongarch-elf/anno-sym.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 6fd6a04d..8e61d8d2 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -3851,44 +3851,53 @@ loongarch_relax_align (bfd *abfd, asection *sec,
+ 			Elf_Internal_Rela *rel,
+ 			bfd_vma symval)
+ {
+-  bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
+-  bfd_vma alignment = 1, pos;
+-  while (alignment <= rel->r_addend)
+-    alignment *= 2;
++  bfd_vma  addend, max = 0, alignment = 1;
+ 
+-  symval -= rel->r_addend;
+-  bfd_vma aligned_addr = ((symval - 1) & ~(alignment - 1)) + alignment;
+-  bfd_vma nop_bytes = aligned_addr - symval;
++  int index = ELFNN_R_SYM (rel->r_info);
++  if (index > 0)
++    {
++      alignment = 1 << (rel->r_addend & 0xff);
++      max = rel->r_addend >> 8;
++    }
++  else
++    alignment = rel->r_addend + 4;
+ 
+-  /* Once we've handled an R_LARCH_ALIGN, we can't relax anything else.  */
+-  sec->sec_flg0 = true;
++  addend = alignment - 4; /* The bytes of NOPs added by R_LARCH_ALIGN.  */
++  symval -= addend; /* The address of first NOP added by R_LARCH_ALIGN.  */
++  bfd_vma aligned_addr = ((symval - 1) & ~(alignment - 1)) + alignment;
++  bfd_vma need_nop_bytes = aligned_addr - symval; /* */
+ 
+   /* Make sure there are enough NOPs to actually achieve the alignment.  */
+-  if (rel->r_addend < nop_bytes)
++  if (addend < need_nop_bytes)
+     {
+       _bfd_error_handler
+ 	(_("%pB(%pA+%#" PRIx64 "): %" PRId64 " bytes required for alignment "
+ 	   "to %" PRId64 "-byte boundary, but only %" PRId64 " present"),
+ 	 abfd, sym_sec, (uint64_t) rel->r_offset,
+-	 (int64_t) nop_bytes, (int64_t) alignment, (int64_t) rel->r_addend);
++	 (int64_t) need_nop_bytes, (int64_t) alignment, (int64_t) addend);
+       bfd_set_error (bfd_error_bad_value);
+       return false;
+     }
+ 
+-  /* Delete the reloc.  */
++  /* Once we've handled an R_LARCH_ALIGN in a section,
++     we can't relax anything else in this section.  */
++  sec->sec_flg0 = true;
+   rel->r_info = ELFNN_R_INFO (0, R_LARCH_NONE);
+ 
++  /* If skipping more bytes than the specified maximum,
++     then the alignment is not done at all and delete all NOPs.  */
++  if (max > 0 && need_nop_bytes > max)
++    return loongarch_relax_delete_bytes (abfd, sec, rel->r_offset,
++					  addend, link_info);
++
+   /* If the number of NOPs is already correct, there's nothing to do.  */
+-  if (nop_bytes == rel->r_addend)
++  if (need_nop_bytes == addend)
+     return true;
+ 
+-  /* Write as many LOONGARCH NOPs as we need.  */
+-  for (pos = 0; pos < (nop_bytes & -4); pos += 4)
+-    bfd_putl32 (LARCH_NOP, contents + rel->r_offset + pos);
+-
+   /* Delete the excess NOPs.  */
+-  return loongarch_relax_delete_bytes (abfd, sec, rel->r_offset + nop_bytes,
+-				   rel->r_addend - nop_bytes, link_info);
++  return loongarch_relax_delete_bytes (abfd, sec,
++					rel->r_offset + need_nop_bytes,
++					addend - need_nop_bytes, link_info);
+ }
+ 
+ static bool
+@@ -3897,8 +3906,8 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 			       bool *again)
+ {
+   struct loongarch_elf_link_hash_table *htab = loongarch_elf_hash_table (info);
+-  Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (abfd);
+   struct bfd_elf_section_data *data = elf_section_data (sec);
++  Elf_Internal_Shdr *symtab_hdr = &elf_symtab_hdr (abfd);
+   Elf_Internal_Rela *relocs;
+   *again = false;
+ 
+@@ -3931,7 +3940,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 						   0, NULL, NULL, NULL)))
+     return true;
+ 
+-      data->relocs = relocs;
++  data->relocs = relocs;
+ 
+   for (unsigned int i = 0; i < sec->reloc_count; i++)
+     {
+@@ -3939,6 +3948,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+       asection *sym_sec;
+       bfd_vma symval;
+       unsigned long r_symndx = ELFNN_R_SYM (rel->r_info);
++      unsigned long r_type = ELFNN_R_TYPE (rel->r_info);
+       bool local_got = false;
+       char symtype;
+       struct elf_link_hash_entry *h = NULL;
+@@ -3950,7 +3960,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  if (ELF_ST_TYPE (sym->st_info) == STT_GNU_IFUNC)
+ 	    continue;
+ 
+-	  if (sym->st_shndx == SHN_UNDEF)
++	  if (sym->st_shndx == SHN_UNDEF || R_LARCH_ALIGN == r_type)
+ 	    {
+ 	      sym_sec = sec;
+ 	      symval = rel->r_offset;
+@@ -3976,9 +3986,9 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	    continue;
+ 
+ 	  if ((h->root.type == bfd_link_hash_defined
+-		    || h->root.type == bfd_link_hash_defweak)
+-		   && h->root.u.def.section != NULL
+-		   && h->root.u.def.section->output_section != NULL)
++		  || h->root.type == bfd_link_hash_defweak)
++		&& h->root.u.def.section != NULL
++		&& h->root.u.def.section->output_section != NULL)
+ 	    {
+ 	      symval = h->root.u.def.value;
+ 	      sym_sec = h->root.u.def.section;
+@@ -4004,12 +4014,21 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	   if (symtype != STT_SECTION)
+ 	     symval += rel->r_addend;
+ 	}
++      /* For R_LARCH_ALIGN, symval is sec_addr (sym_sec) + rel->r_offset
++	 + (alingmeng - 4).
++	 If r_symndx is 0, alignmeng-4 is r_addend.
++	 If r_symndx > 0, alignment-4 is 2^(r_addend & 0xff)-4.  */
++      else if (R_LARCH_ALIGN == r_type)
++	if (r_symndx > 0)
++	  symval += ((1 << (rel->r_addend & 0xff)) - 4);
++	else
++	  symval += rel->r_addend;
+       else
+ 	symval += rel->r_addend;
+ 
+       symval += sec_addr (sym_sec);
+ 
+-      switch (ELFNN_R_TYPE (rel->r_info))
++      switch (r_type)
+ 	{
+ 	case R_LARCH_ALIGN:
+ 	  if (1 == info->relax_pass)
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index d93b7904..679b79f3 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -1395,9 +1395,13 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 NULL,					/* adjust_reloc_bits.  */
+ 	 NULL),					/* larch_reloc_type_name.  */
+ 
+-  /* Indicates an alignment statement.  The addend field encodes how many
+-     bytes of NOPs follow the statement.  The desired alignment is the
+-     addend rounded up to the next power of two.  */
++  /* Indicates an alignment statement. f the symbol index is 0,
++     the addend indicates the number of bytes occupied by nop instructions
++     at the relocation offset. The alignment boundary is specified by the
++     addend rounded up to the next power of two.
++     If the symbol index is not 0, the addend indicates the first and third
++     expressions of .align. The lowest 8 bits are used to represent the first
++     expression, other bits are used to represent the third expression.  */
+   LOONGARCH_HOWTO (R_LARCH_ALIGN,		/* type (102).  */
+ 	 0,					/* rightshift.  */
+ 	 0,					/* size.  */
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 367a0b6c..9b912daf 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -1652,14 +1652,16 @@ loongarch_make_nops (char *buf, bfd_vma bytes)
+    the correct alignment now because of other linker relaxations.  */
+ 
+ bool
+-loongarch_frag_align_code (int n)
++loongarch_frag_align_code (int n, int max)
+ {
+-  bfd_vma bytes = (bfd_vma) 1 << n;
+-  bfd_vma insn_alignment = 4;
+-  bfd_vma worst_case_bytes = bytes - insn_alignment;
+   char *nops;
++  symbolS *s;
+   expressionS ex;
+ 
++  bfd_vma insn_alignment = 4;
++  bfd_vma bytes = (bfd_vma) 1 << n;
++  bfd_vma worst_case_bytes = bytes - insn_alignment;
++
+   /* If we are moving to a smaller alignment than the instruction size, then no
+      alignment is required.  */
+   if (bytes <= insn_alignment)
+@@ -1671,8 +1673,14 @@ loongarch_frag_align_code (int n)
+ 
+   nops = frag_more (worst_case_bytes);
+ 
+-  ex.X_op = O_constant;
+-  ex.X_add_number = worst_case_bytes;
++  s = symbol_find (".Lla-relax-align");
++  if (s == NULL)
++    s = (symbolS *)local_symbol_make (".Lla-relax-align", now_seg,
++				      &zero_address_frag, 0);
++
++  ex.X_add_symbol = s;
++  ex.X_op = O_symbol;
++  ex.X_add_number = (max << 8) | n;
+ 
+   loongarch_make_nops (nops, worst_case_bytes);
+ 
+diff --git a/gas/config/tc-loongarch.h b/gas/config/tc-loongarch.h
+index 4afa3842..194ee107 100644
+--- a/gas/config/tc-loongarch.h
++++ b/gas/config/tc-loongarch.h
+@@ -49,11 +49,11 @@ extern int loongarch_relax_frag (asection *, struct frag *, long);
+ #define md_undefined_symbol(name) (0)
+ #define md_operand(x)
+ 
+-extern bool loongarch_frag_align_code (int);
++extern bool loongarch_frag_align_code (int, int);
+ #define md_do_align(N, FILL, LEN, MAX, LABEL)				\
+   if ((N) != 0 && !(FILL) && !need_pass_2 && subseg_text_p (now_seg))	\
+     {									\
+-      if (loongarch_frag_align_code (N))				\
++      if (loongarch_frag_align_code (N, MAX))				\
+ 	goto LABEL;							\
+     }
+ 
+diff --git a/gas/testsuite/gas/loongarch/relax_align.d b/gas/testsuite/gas/loongarch/relax_align.d
+index 1810eb4c..2cc6c86d 100644
+--- a/gas/testsuite/gas/loongarch/relax_align.d
++++ b/gas/testsuite/gas/loongarch/relax_align.d
+@@ -1,4 +1,4 @@
+-#as:
++#as: --no-warn
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+@@ -7,20 +7,30 @@
+ 
+ Disassembly of section .text:
+ 
+-00000000.* <L1>:
+-[ 	]+0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+0:[ 	]+R_LARCH_PCALA_HI20[ 	]+L1
+-[ 	]+0:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+4:[ 	]+02c00084[ 	]+addi\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+4:[ 	]+R_LARCH_PCALA_LO12[ 	]+L1
+-[ 	]+4:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+8:[ 	]+03400000[ 	]+nop[ 	]+
+-[ 	]+8:[ 	]+R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
+-[ 	]+c:[ 	]+03400000[ 	]+nop[ 	]+
+-[ 	]+10:[ 	]+03400000[ 	]+nop[ 	]+
+-[ 	]+14:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0,[ 	]+0
+-[ 	]+14:[ 	]+R_LARCH_PCALA_HI20[ 	]+L1
+-[ 	]+14:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
+-[ 	]+18:[ 	]+02c00084[ 	]+addi\.d[ 	]+\$a0,[ 	]+\$a0,[ 	]+0
+-[ 	]+18:[ 	]+R_LARCH_PCALA_LO12[ 	]+L1
+-[ 	]+18:[ 	]+R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]*0000000000000000 <.Lla-relax-align>:
++[ 	]+0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+0: R_LARCH_PCALA_HI20[ 	]+L1
++[ 	]+0: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+4:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+4: R_LARCH_PCALA_LO12[ 	]+L1
++[ 	]+4: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+8:[ 	]+03400000[ 	]+nop.*
++[ 	]+8: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0x4
++[ 	]+c:[ 	]+03400000[ 	]+nop.*
++[ 	]+10:[ 	]+03400000[ 	]+nop.*
++[ 	]+14:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+14: R_LARCH_PCALA_HI20[ 	]+L1
++[ 	]+14: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+18:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+18: R_LARCH_PCALA_LO12[ 	]+L1
++[ 	]+18: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+1c:[ 	]+03400000[ 	]+nop.*
++[ 	]+1c: R_LARCH_ALIGN[ 	]+.Lla-relax-align\+0x404
++[ 	]+20:[ 	]+03400000[ 	]+nop.*
++[ 	]+24:[ 	]+03400000[ 	]+nop.*
++[ 	]+28:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+28: R_LARCH_PCALA_HI20[ 	]+L1
++[ 	]+28: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+2c:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+2c: R_LARCH_PCALA_LO12[ 	]+L1
++[ 	]+2c: R_LARCH_RELAX[ 	]+\*ABS\*
+diff --git a/gas/testsuite/gas/loongarch/relax_align.s b/gas/testsuite/gas/loongarch/relax_align.s
+index 3880d783..c0177c88 100644
+--- a/gas/testsuite/gas/loongarch/relax_align.s
++++ b/gas/testsuite/gas/loongarch/relax_align.s
+@@ -1,5 +1,7 @@
+   .text
+-L1:
++.L1:
+   la.local $a0, L1
+   .align 4
+   la.local $a0, L1
++  .align 4, , 4
++  la.local $a0, L1
+diff --git a/ld/testsuite/ld-elf/anno-sym.d b/ld/testsuite/ld-elf/anno-sym.d
+index 9e53c4a9..f1ce21f9 100644
+--- a/ld/testsuite/ld-elf/anno-sym.d
++++ b/ld/testsuite/ld-elf/anno-sym.d
+@@ -3,3 +3,5 @@
+ #error_output: anno-sym.l
+ # The mips-irix6 target fails this test because it does not find any function symbols.  Not sure why.
+ #skip: *-*-irix*
++# The .align generate a local symbol .Lla-relax-align.
++#skip: loongarch*-*-*
+diff --git a/ld/testsuite/ld-loongarch-elf/anno-sym.d b/ld/testsuite/ld-loongarch-elf/anno-sym.d
+new file mode 100644
+index 00000000..a58f4a6c
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/anno-sym.d
+@@ -0,0 +1,7 @@
++# Copied from ld-elf, add -mno-relax to prevent generate .Lla-relax-align symbol
++# Check that linking anno-sym.o produces an undefined reference message referring to '_start' and not 'annobin_hello.c'
++#as: -mno-relax
++#ld:  -e _start
++#error_output: anno-sym.l
++# The mips-irix6 target fails this test because it does not find any function symbols.  Not sure why.
++#skip: *-*-irix*
+diff --git a/ld/testsuite/ld-loongarch-elf/anno-sym.l b/ld/testsuite/ld-loongarch-elf/anno-sym.l
+new file mode 100644
+index 00000000..ee9611ae
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/anno-sym.l
+@@ -0,0 +1,4 @@
++#...
++.*: in function `(|_)start':
++.*: undefined reference to `foo'
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/anno-sym.s b/ld/testsuite/ld-loongarch-elf/anno-sym.s
+new file mode 100644
+index 00000000..92016a80
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/anno-sym.s
+@@ -0,0 +1,13 @@
++	.text
++
++	.hidden .annobin_hello.c
++	.type .annobin_hello.c, STT_NOTYPE
++	.equiv .annobin_hello.c, .
++	.size .annobin_hello.c, 0
++
++	.global _start
++_start:
++	.nop
++	.align 4
++	.dc.a foo
++
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 1fc70d0a..b43a518a 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -32,6 +32,7 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "syscall"
+     run_dump_test "disas-jirl"
+     run_dump_test "local-ifunc-reloc"
++    run_dump_test "anno-sym"
+ }
+ 
+ if [istarget "loongarch32-*-*"] {
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align.dd b/ld/testsuite/ld-loongarch-elf/relax-align.dd
+index 5fce2255..37fdab18 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax-align.dd
++++ b/ld/testsuite/ld-loongarch-elf/relax-align.dd
+@@ -1,7 +1,8 @@
+ #...
+ .*pcaddi.*
+-.*pcaddi.*
+ .*nop.*
++.*pcaddi.*
+ .*nop.*
+-.*0:.*pcaddi.*
++.*pcaddi.*
++.*pcaddi.*
+ #pass
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-align.s b/ld/testsuite/ld-loongarch-elf/relax-align.s
+index 9617c02d..66dfea8f 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax-align.s
++++ b/ld/testsuite/ld-loongarch-elf/relax-align.s
+@@ -4,6 +4,9 @@
+   .text
+ L1:
+   la.local $a0, L1
++  .align 3
+   la.local $a0, L1
+-  .align 4
++  .align 3, ,4
++  la.local $a0, L1
++  .align 3, ,2
+   la.local $a0, L1
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index 24d79ed5..77323d8d 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -121,7 +121,7 @@ if [istarget loongarch64-*-*] {
+ 	  [list \
+ 	      "loongarch relax-align" \
+ 	      "-e 0x0 -z relro" "" \
+-	      "" \
++	      "--no-warn" \
+ 	      {relax-align.s} \
+ 	      [list \
+ 		  [list objdump -d relax-align.dd] \
+-- 
+2.33.0
+

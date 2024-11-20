@@ -1,0 +1,40 @@
+From ec2d7d7fe1c2bc448ff77a192fc71be1bee87593 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Thu, 21 Mar 2024 15:16:05 +0800
+Subject: [PATCH 079/123] LoongArch: ld:Report an error when seeing an
+ unrecognized relocation
+
+If we generate an object file using an assembler with the new
+relocations added, and then linking those files with an older
+linker, the link will still complete and the linked file will
+be generated.
+In this case we should report an error instead of continuing
+the linking process.
+---
+ bfd/elfnn-loongarch.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 36f1cfd5..70ef28f3 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -2610,9 +2610,14 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+       bfd_vma relocation, off, ie_off, desc_off;
+       int i, j;
+ 
++      /* When an unrecognized relocation is encountered, which usually
++	 occurs when using a newer assembler but an older linker, an error
++	 should be reported instead of continuing to the next relocation.  */
+       howto = loongarch_elf_rtype_to_howto (input_bfd, r_type);
+-      if (howto == NULL || r_type == R_LARCH_GNU_VTINHERIT
+-	  || r_type == R_LARCH_GNU_VTENTRY)
++      if (howto == NULL)
++	return _bfd_unrecognized_reloc (input_bfd, input_section, r_type);
++
++      if (r_type == R_LARCH_GNU_VTINHERIT || r_type == R_LARCH_GNU_VTENTRY)
+ 	continue;
+ 
+       /* This is a final link.  */
+-- 
+2.33.0
+

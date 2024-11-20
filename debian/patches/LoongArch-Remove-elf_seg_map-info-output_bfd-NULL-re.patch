@@ -1,0 +1,112 @@
+From 4f2469d0cdd0f3bd1d9040521e002e8df0a63a98 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 16 Nov 2023 19:19:14 +0800
+Subject: [PATCH] LoongArch: Remove "elf_seg_map (info->output_bfd) == NULL"
+ relaxation condition
+
+Previously the condition prevented shared objects from being relaxed.
+To remove the limitation, we need to update program header size and
+.eh_frame_hdr size before relaxation.
+
+Signed-off-by: Peng Fan <fanpeng@loongson.cn>
+---
+ bfd/elfnn-loongarch.c        | 25 +++++++++++++++++++++----
+ ld/emultempl/loongarchelf.em | 18 ++++++++++++++++++
+ 2 files changed, 39 insertions(+), 4 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 7436a14441f..987e5b98bc0 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -3738,7 +3738,7 @@ loongarch_relax_delete_bytes (bfd *abfd,
+ 
+ /* Relax pcalau12i,addi.d => pcaddi.  */
+ static bool
+-loongarch_relax_pcala_addi (bfd *abfd, asection *sec,
++loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+ 		       Elf_Internal_Rela *rel_hi, bfd_vma symval,
+ 		       struct bfd_link_info *info, bool *again)
+ {
+@@ -3747,7 +3747,24 @@ loongarch_relax_pcala_addi (bfd *abfd, asection *sec,
+   uint32_t pca = bfd_get (32, abfd, contents + rel_hi->r_offset);
+   uint32_t add = bfd_get (32, abfd, contents + rel_lo->r_offset);
+   uint32_t rd = pca & 0x1f;
++
++  /* This section's output_offset need to subtract the bytes of instructions
++     relaxed by the previous sections, so it needs to be updated beforehand.
++     size_input_section already took care of updating it after relaxation,
++     so we additionally update once here.  */
++  sec->output_offset = sec->output_section->size;
+   bfd_vma pc = sec_addr (sec) + rel_hi->r_offset;
++
++  /* If pc and symbol not in the same segment, add/sub segment alignment.
++     FIXME: if there are multiple readonly segments?  */
++  if (!(sym_sec->flags & SEC_READONLY))
++    {
++      if (symval > pc)
++	pc -= info->maxpagesize;
++      else if (symval < pc)
++	pc += info->maxpagesize;
++    }
++
+   const uint32_t addi_d = 0x02c00000;
+   const uint32_t pcaddi = 0x18000000;
+ 
+@@ -3889,7 +3906,6 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+       || sec->sec_flg0
+       || (sec->flags & SEC_RELOC) == 0
+       || sec->reloc_count == 0
+-      || elf_seg_map (info->output_bfd) == NULL
+       || (info->disable_target_specific_optimizations
+ 	  && info->relax_pass == 0)
+       /* The exp_seg_relro_adjust is enum phase_enum (0x4),
+@@ -4009,14 +4025,15 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  break;
+ 	case R_LARCH_PCALA_HI20:
+ 	  if (0 == info->relax_pass && (i + 4) <= sec->reloc_count)
+-	    loongarch_relax_pcala_addi (abfd, sec, rel, symval, info, again);
++	    loongarch_relax_pcala_addi (abfd, sec, sym_sec, rel, symval,
++					info, again);
+ 	  break;
+ 	case R_LARCH_GOT_PC_HI20:
+ 	  if (local_got && 0 == info->relax_pass
+ 	      && (i + 4) <= sec->reloc_count)
+ 	    {
+ 	      if (loongarch_relax_pcala_ld (abfd, sec, rel))
+-		loongarch_relax_pcala_addi (abfd, sec, rel, symval,
++		loongarch_relax_pcala_addi (abfd, sec, sym_sec, rel, symval,
+ 					    info, again);
+ 	    }
+ 	  break;
+diff --git a/ld/emultempl/loongarchelf.em b/ld/emultempl/loongarchelf.em
+index 4850feb8767..d81c99da48b 100644
+--- a/ld/emultempl/loongarchelf.em
++++ b/ld/emultempl/loongarchelf.em
+@@ -62,6 +62,24 @@ gld${EMULATION_NAME}_after_allocation (void)
+ 	}
+     }
+ 
++  /* The program header size of executable file may increase.  */
++  if (bfd_get_flavour (link_info.output_bfd) == bfd_target_elf_flavour
++      && !bfd_link_relocatable (&link_info))
++    {
++      if (lang_phdr_list == NULL)
++        elf_seg_map (link_info.output_bfd) = NULL;
++      if (!_bfd_elf_map_sections_to_segments (link_info.output_bfd,
++					      &link_info,
++					      NULL))
++        einfo (_("%F%P: map sections to segments failed: %E\n"));
++    }
++
++  /* Adjust program header size and .eh_frame_hdr size before
++     lang_relax_sections. Without it, the vma of data segment may increase.  */
++  lang_do_assignments (lang_allocating_phase_enum);
++  lang_reset_memory_regions ();
++  lang_size_sections (NULL, true);
++
+   enum phase_enum *phase = &(expld.dataseg.phase);
+   bfd_elf${ELFSIZE}_loongarch_set_data_segment_info (&link_info, (int *) phase);
+   /* gld${EMULATION_NAME}_map_segments (need_layout); */
+-- 
+2.33.0
+

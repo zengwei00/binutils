@@ -1,0 +1,43 @@
+From fd100b34ac667ad62f57800762c76ac5272ceb16 Mon Sep 17 00:00:00 2001
+From: changjiachen <changjiachen@stu.xupt.edu.cn>
+Date: Thu, 28 Dec 2023 19:57:30 +0800
+Subject: [PATCH 032/123] LoongArch: include: Add support for tls le relax.
+
+Add new relocs number for tls le relax.
+
+include/ChangeLog:
+
+	* elf/loongarch.h:
+	(RELOC_NUMBER (R_LARCH_TLS_LE_HI20_R, 121)): New relocs number.
+	(RELOC_NUMBER (R_LARCH_TLS_LE_ADD_R, 122)): Likewise.
+	(RELOC_NUMBER (R_LARCH_TLS_LE_LO12_R, 123)): Likewise.
+---
+ include/elf/loongarch.h | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/include/elf/loongarch.h b/include/elf/loongarch.h
+index 6cfee164..1deb6ba1 100644
+--- a/include/elf/loongarch.h
++++ b/include/elf/loongarch.h
+@@ -273,6 +273,18 @@ RELOC_NUMBER (R_LARCH_TLS_DESC64_HI12, 118)
+ RELOC_NUMBER (R_LARCH_TLS_DESC_LD, 119)
+ RELOC_NUMBER (R_LARCH_TLS_DESC_CALL, 120)
+ 
++/* TLS-LE-LUI
++   lu12i.w rd,%le_hi20_r (sym).  */
++RELOC_NUMBER (R_LARCH_TLS_LE_HI20_R, 121)
++
++/* TLS-LE-ADD
++   add.d   rd,rj,rk,%le_add_r (sym).  */
++RELOC_NUMBER (R_LARCH_TLS_LE_ADD_R, 122)
++
++/* TLS-LE-ST
++   st.w/addi.w/ld.w rd,rj,%le_lo12_r (sym).  */
++RELOC_NUMBER (R_LARCH_TLS_LE_LO12_R, 123)
++
+ RELOC_NUMBER (R_LARCH_TLS_LD_PCREL20_S2, 124)
+ RELOC_NUMBER (R_LARCH_TLS_GD_PCREL20_S2, 125)
+ RELOC_NUMBER (R_LARCH_TLS_DESC_PCREL20_S2, 126)
+-- 
+2.33.0
+

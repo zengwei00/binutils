@@ -1,0 +1,87 @@
+From 9bdf2be420d4477838bfb11d9cd4c2d6ad257119 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 30 May 2024 19:52:34 +0800
+Subject: [PATCH 090/123] LoongArch: Disable linker relaxation if set the
+ address of section or segment
+
+If set the address of section or segment, the offset from pc to symbol
+may become bigger and cause overflow.
+---
+ ld/emultempl/loongarchelf.em                | 16 ++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/relax-ttext.s | 13 +++++++++++++
+ ld/testsuite/ld-loongarch-elf/relax.exp     | 12 ++++++++++++
+ 3 files changed, 41 insertions(+)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-ttext.s
+
+diff --git a/ld/emultempl/loongarchelf.em b/ld/emultempl/loongarchelf.em
+index 99749894..13f8dacb 100644
+--- a/ld/emultempl/loongarchelf.em
++++ b/ld/emultempl/loongarchelf.em
+@@ -25,6 +25,22 @@ fragment <<EOF
+ #include "elf/loongarch.h"
+ #include "elfxx-loongarch.h"
+ 
++EOF
++
++# Disable linker relaxation if set address of section or segment.
++PARSE_AND_LIST_ARGS_CASES=${PARSE_AND_LIST_ARGS_CASES}'
++    case OPTION_SECTION_START:
++    case OPTION_TTEXT:
++    case OPTION_TBSS:
++    case OPTION_TDATA:
++    case OPTION_TTEXT_SEGMENT:
++    case OPTION_TRODATA_SEGMENT:
++    case OPTION_TLDATA_SEGMENT:
++      link_info.disable_target_specific_optimizations = 2;
++      return false;
++'
++
++fragment <<EOF
+ static void
+ larch_elf_before_allocation (void)
+ {
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-ttext.s b/ld/testsuite/ld-loongarch-elf/relax-ttext.s
+new file mode 100644
+index 00000000..1bbd85a0
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-ttext.s
+@@ -0,0 +1,13 @@
++# At relax pass 0, offset is 0x120204000-0x12000bff8=0x1f8008 < 0x200000
++# At relax pass 1, delete 0x7ff8 bytes NOP,
++# offset is 0x120204000-0x120004000=0x200000 >= 0x200000, overflow
++.text
++.align 14 # delete at relax pass 1
++.fill 0x4000
++.align 14 # delete at relax pass 1
++la.local $t2, a # relax to pcaddi at relax pass 0
++
++.section ".text1", "ax"
++  .fill 0x4000
++a:	     # 0x120204000
++  ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index 05c4ed0a..05b268f4 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -51,6 +51,18 @@ if [istarget loongarch64-*-*] {
+     run_dump_test "relax-align-ignore-start"
+     run_partial_linking_align_test
+ 
++    run_ld_link_tests \
++	[list \
++	    [list \
++		"loongarch relax ttext" \
++		"" "" \
++		"" \
++		{relax-ttext.s} \
++		{} \
++		"relax-ttext" \
++	    ] \
++	]
++
+     set testname "loongarch relax .exe build"
+     set pre_builds [list \
+       [list \
+-- 
+2.33.0
+

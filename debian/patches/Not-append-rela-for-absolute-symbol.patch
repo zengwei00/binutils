@@ -1,0 +1,133 @@
+From 41abd06f7ba97c5b92a2d38c99c357772bba3ade Mon Sep 17 00:00:00 2001
+From: Xin Wang <yw987194828@gmail.com>
+Date: Fri, 16 Aug 2024 11:28:10 +0800
+Subject: [PATCH 113/123] Not append rela for absolute symbol
+
+LoongArch: Not append rela for absolute symbol
+
+Use la.global to get absolute symbol like la.abs.
+la.global put address of a global symbol into a got
+entry and append a rela for it, which will be used
+to relocate by dynamic linker. Dynamic linker should
+not relocate for got entry of absolute symbol as it
+stores symval not symbol's address.
+---
+ bfd/elfnn-loongarch.c                         | 19 ++++++++++++++++++-
+ ld/testsuite/ld-loongarch-elf/abs-global.out  |  1 +
+ ld/testsuite/ld-loongarch-elf/abs-global.s    |  5 +++++
+ .../ld-loongarch-elf/get_abs_global_sym.c     |  7 +++++++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     | 12 ++++++++++++
+ 5 files changed, 43 insertions(+), 1 deletion(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abs-global.out
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abs-global.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/get_abs_global_sym.c
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 770483cd..09a9513b 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -4135,6 +4135,7 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 		      if (!WILL_CALL_FINISH_DYNAMIC_SYMBOL (is_dyn,
+ 							    bfd_link_pic (info),
+ 							    h)
++			  && !bfd_is_abs_section(h->root.u.def.section)
+ 			  && bfd_link_pic (info)
+ 			  && LARCH_REF_LOCAL (info, h)
+ 			  && !info->enable_dt_relr)
+@@ -4157,7 +4158,8 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 			      && local_got_offsets[r_symndx] != MINUS_ONE);
+ 
+ 		  got_off = local_got_offsets[r_symndx] & (~(bfd_vma)1);
+-		  if ((local_got_offsets[r_symndx] & 1) == 0)
++		  if (sym->st_shndx != SHN_ABS
++		      && (local_got_offsets[r_symndx] & 1) == 0)
+ 		    {
+ 		      if (bfd_link_pic (info) && !info->enable_dt_relr)
+ 			{
+@@ -5314,6 +5316,7 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+       bfd_vma symval;
+       asection *sym_sec;
+       bool local_got = false;
++      bool is_abs_symbol = false;
+       Elf_Internal_Rela *rel = relocs + i;
+       struct elf_link_hash_entry *h = NULL;
+       unsigned long r_type = ELFNN_R_TYPE (rel->r_info);
+@@ -5495,7 +5498,21 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	  break;
+ 
+ 	case R_LARCH_GOT_PC_HI20:
++	  if (h)
++	    is_abs_symbol = bfd_is_abs_section(h->root.u.def.section);
++	  else
++	    {
++	      Elf_Internal_Sym *sym = (Elf_Internal_Sym *)symtab_hdr->contents
++				    + ELFNN_R_SYM (rel->r_info);
++	      is_abs_symbol = sym->st_shndx == SHN_ABS;
++	    }
++	 /* If symval is in the range [-2^31, 2^31), we can relax the
++	    pair of instructions from pcalau12i/ld.d to lu12i.w/ori for
++	    abosulte symbol. This is not implemented yet, so we just
++	    remain the r_type which will be needed when relocate for
++	    absolute symbol. */
+ 	  if (local_got && 0 == info->relax_pass
++	      && !is_abs_symbol
+ 	      && (i + 4) <= sec->reloc_count)
+ 	    {
+ 	      if (loongarch_relax_pcala_ld (abfd, sec, rel))
+diff --git a/ld/testsuite/ld-loongarch-elf/abs-global.out b/ld/testsuite/ld-loongarch-elf/abs-global.out
+new file mode 100644
+index 00000000..3656652b
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abs-global.out
+@@ -0,0 +1 @@
++abba
+diff --git a/ld/testsuite/ld-loongarch-elf/abs-global.s b/ld/testsuite/ld-loongarch-elf/abs-global.s
+new file mode 100644
+index 00000000..93a5da6d
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abs-global.s
+@@ -0,0 +1,5 @@
++.text
++.globl get_sym
++get_sym:
++ la.global $a0, sym
++ ret
+diff --git a/ld/testsuite/ld-loongarch-elf/get_abs_global_sym.c b/ld/testsuite/ld-loongarch-elf/get_abs_global_sym.c
+new file mode 100644
+index 00000000..29781ad7
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/get_abs_global_sym.c
+@@ -0,0 +1,7 @@
++#include <stdio.h>
++
++extern int get_sym();
++int main() {
++	printf("%x\n", get_sym());
++	return 0;
++}
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index cb6d2296..555ebf92 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -130,6 +130,18 @@ if [istarget "loongarch64-*-*"] {
+ 		"a.binary" \
+ 	   ] \
+       ]
++
++
++  run_ld_link_exec_tests [list \
++	[list \
++	    "get global abs symbol test" \
++	    "-Wl,-z norelro -Wl,--defsym sym=0xabba" \
++	    "" \
++	    { abs-global.s get_abs_global_sym.c} \
++	    "abs-global" \
++	    "abs-global.out" \
++	] \
++    ]
+ }
+ 
+ if [istarget "loongarch64-*-*"] {
+-- 
+2.33.0
+

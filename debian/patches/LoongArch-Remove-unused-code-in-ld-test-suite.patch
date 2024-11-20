@@ -1,0 +1,45 @@
+From a88594951ad3b0657d8e6139c3fde63e7a771b12 Mon Sep 17 00:00:00 2001
+From: Xi Ruoyao <xry111@xry111.site>
+Date: Sat, 22 Jun 2024 18:06:47 +0800
+Subject: [PATCH 094/123] LoongArch: Remove unused code in ld test suite
+
+These seems some left over from MIPS code and they do not make any
+sense for LoongArch.
+
+Signed-off-by: Xi Ruoyao <xry111@xry111.site>
+---
+ ld/testsuite/ld-loongarch-elf/anno-sym.d           | 2 --
+ ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp | 7 -------
+ 2 files changed, 9 deletions(-)
+
+diff --git a/ld/testsuite/ld-loongarch-elf/anno-sym.d b/ld/testsuite/ld-loongarch-elf/anno-sym.d
+index a58f4a6c..6d2149f0 100644
+--- a/ld/testsuite/ld-loongarch-elf/anno-sym.d
++++ b/ld/testsuite/ld-loongarch-elf/anno-sym.d
+@@ -3,5 +3,3 @@
+ #as: -mno-relax
+ #ld:  -e _start
+ #error_output: anno-sym.l
+-# The mips-irix6 target fails this test because it does not find any function symbols.  Not sure why.
+-#skip: *-*-irix*
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 5d109a4d..89552a11 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -19,13 +19,6 @@
+ # MA 02110-1301, USA.
+ #
+ 
+-proc loongarch_choose_lp64_emul {} {
+-    if { [istarget "loongarch64be-*"] } {
+-	return "elf64bloongarch"
+-    }
+-    return "elf64lloongarch"
+-}
+-
+ if [istarget "loongarch64-*-*"] {
+     run_dump_test "jmp_op"
+     run_dump_test "macro_op"
+-- 
+2.33.0
+

@@ -1,0 +1,26 @@
+From e80e6624e3b5aafd683706f6567e4b748c4c441f Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Fri, 18 Aug 2023 17:02:20 +0800
+Subject: [PATCH 005/123] LoongArch: gas: Fix make check-gas crash
+
+---
+ gas/testsuite/lib/gas-defs.exp | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/gas/testsuite/lib/gas-defs.exp b/gas/testsuite/lib/gas-defs.exp
+index 3e134ca8..da0c24ea 100644
+--- a/gas/testsuite/lib/gas-defs.exp
++++ b/gas/testsuite/lib/gas-defs.exp
+@@ -361,9 +361,6 @@ proc verbose_eval { expr { level 1 } } {
+ # that version gets released, and has been out in the world for a few
+ # months at least, it may be safe to delete this copy.
+ 
+-if { [istarget loongarch*-*-*] } {
+-    rename prune_warnings prune_warnings_other
+-}
+ if ![string length [info proc prune_warnings]] {
+     #
+     # prune_warnings -- delete various system verbosities from TEXT.
+-- 
+2.33.0
+

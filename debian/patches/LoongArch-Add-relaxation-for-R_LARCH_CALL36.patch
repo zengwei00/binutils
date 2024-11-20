@@ -1,0 +1,684 @@
+From 1ac9f2fb1378c35c8d75b54b82a34a5e560b6ad3 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Wed, 28 Feb 2024 17:42:36 +0800
+Subject: [PATCH 074/123] LoongArch: Add relaxation for R_LARCH_CALL36
+
+This relaxation is effective for both macro instructions (call36, tail36)
+and explicit relocation instructions (pcaddu18i + jirl).
+
+call36 f	  ->	bl f
+  R_LARCH_CALL36  ->	  R_LARCH_B26
+
+tail36 $t0, f	  ->	b f
+  R_LARCH_CALL36  ->	  R_LARCH_B26
+---
+ bfd/elfnn-loongarch.c                         |  59 ++++
+ gas/config/tc-loongarch.c                     |  19 +-
+ gas/testsuite/gas/loongarch/medium-call.d     |   7 +-
+ .../relax-cfi-fde-DW_CFA_advance_loc.d        |  10 +-
+ .../relax-cfi-fde-DW_CFA_advance_loc.s        |   4 +
+ gas/testsuite/gas/loongarch/relocs_64.d       | 282 +++++++++---------
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     |   2 +
+ .../ld-loongarch-elf/relax-medium-call-1.d    |  21 ++
+ .../ld-loongarch-elf/relax-medium-call-1.s    |  43 +++
+ .../ld-loongarch-elf/relax-medium-call.d      |  21 ++
+ .../ld-loongarch-elf/relax-medium-call.s      |  35 +++
+ 11 files changed, 356 insertions(+), 147 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-medium-call.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-medium-call.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 489ccbe0..1c3295f4 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -4334,6 +4334,60 @@ loongarch_relax_pcala_addi (bfd *abfd, asection *sec, asection *sym_sec,
+   return true;
+ }
+ 
++/* call36 f -> bl f
++   tail36 $t0, f -> b f.  */
++static bool
++loongarch_relax_call36 (bfd *abfd, asection *sec,
++			    Elf_Internal_Rela *rel, bfd_vma symval,
++			    struct bfd_link_info *info, bool *again,
++			    bfd_vma max_alignment)
++{
++  bfd_byte *contents = elf_section_data (sec)->this_hdr.contents;
++  uint32_t jirl = bfd_get (32, abfd, contents + rel->r_offset + 4);
++  uint32_t rd = jirl & 0x1f;
++
++  /* This section's output_offset need to subtract the bytes of instructions
++     relaxed by the previous sections, so it needs to be updated beforehand.
++     size_input_section already took care of updating it after relaxation,
++     so we additionally update once here.  */
++  sec->output_offset = sec->output_section->size;
++  bfd_vma pc = sec_addr (sec) + rel->r_offset;
++
++  /* If pc and symbol not in the same segment, add/sub segment alignment.
++     FIXME: if there are multiple readonly segments? How to determine if
++     two sections are in the same segment.  */
++  if (symval > pc)
++    pc -= (max_alignment > 4 ? max_alignment : 0);
++  else if (symval < pc)
++    pc += (max_alignment > 4 ? max_alignment : 0);
++
++  const uint32_t jirl_opcode = 0x4c000000;
++
++  /* Is pcalau12i + addi.d insns?  */
++  if ((ELFNN_R_TYPE ((rel + 1)->r_info) != R_LARCH_RELAX)
++      || ((jirl & jirl_opcode) != jirl_opcode)
++      || ((bfd_signed_vma)(symval - pc) < (bfd_signed_vma)(int32_t)0xf8000000)
++      || ((bfd_signed_vma)(symval - pc) > (bfd_signed_vma)(int32_t)0x7fffffc))
++    return false;
++
++  /* Continue next relax trip.  */
++  *again = true;
++
++  const uint32_t bl = 0x54000000;
++  const uint32_t b = 0x50000000;
++
++  if (rd)
++    bfd_put (32, abfd, bl, contents + rel->r_offset);
++  else
++    bfd_put (32, abfd, b, contents + rel->r_offset);
++
++  /* Adjust relocations.  */
++  rel->r_info = ELFNN_R_INFO (ELFNN_R_SYM (rel->r_info), R_LARCH_B26);
++  /* Delete jirl instruction.  */
++  loongarch_relax_delete_bytes (abfd, sec, rel->r_offset + 4, 4, info);
++  return true;
++}
++
+ /* Relax pcalau12i,ld.d => pcalau12i,addi.d.  */
+ static bool
+ loongarch_relax_pcala_ld (bfd *abfd, asection *sec,
+@@ -4752,6 +4806,11 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+ 	      rel->r_info = ELFNN_R_INFO (0, R_LARCH_NONE);
+ 	    }
+ 	  break;
++	case R_LARCH_CALL36:
++	  if (0 == info->relax_pass && (i + 2) <= sec->reloc_count)
++	    loongarch_relax_call36 (abfd, sec, rel, symval, info, again,
++				    max_alignment);
++	  break;
+ 
+ 	case R_LARCH_TLS_LE_HI20_R:
+ 	case R_LARCH_TLS_LE_LO12_R:
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index ff126d56..51575757 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -116,6 +116,8 @@ const char *md_shortopts = "O::g::G:";
+ 
+ static const char default_arch[] = DEFAULT_ARCH;
+ 
++static bool call36 = 0;
++
+ /* The lowest 4-bit is the bytes of instructions.  */
+ #define RELAX_BRANCH_16 0xc0000014
+ #define RELAX_BRANCH_21 0xc0000024
+@@ -720,7 +722,8 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 			|| BFD_RELOC_LARCH_TLS_LE_HI20 == reloc_type
+ 			|| BFD_RELOC_LARCH_TLS_LE_LO12 == reloc_type
+ 			|| BFD_RELOC_LARCH_TLS_LE64_LO20 == reloc_type
+-			|| BFD_RELOC_LARCH_TLS_LE64_HI12 == reloc_type))
++			|| BFD_RELOC_LARCH_TLS_LE64_HI12 == reloc_type
++			|| BFD_RELOC_LARCH_CALL36 == reloc_type))
+ 		{
+ 		  ip->reloc_info[ip->reloc_num].type = BFD_RELOC_LARCH_RELAX;
+ 		  ip->reloc_info[ip->reloc_num].value = const_0;
+@@ -1016,6 +1019,20 @@ append_fixed_insn (struct loongarch_cl_insn *insn)
+ 
+   char *f = frag_more (insn->insn_length);
+   move_insn (insn, frag_now, f - frag_now->fr_literal);
++
++  if (call36)
++    {
++      if (strcmp (insn->name, "jirl") == 0)
++	{
++	  /* See comment at end of append_fixp_and_insn.  */
++	  frag_wane (frag_now);
++	  frag_new (0);
++	}
++      call36 = 0;
++    }
++
++  if (BFD_RELOC_LARCH_CALL36 == insn->reloc_info[0].type)
++    call36 = 1;
+ }
+ 
+ /* Add instructions based on the worst-case scenario firstly.  */
+diff --git a/gas/testsuite/gas/loongarch/medium-call.d b/gas/testsuite/gas/loongarch/medium-call.d
+index 3491760b..79d74ba3 100644
+--- a/gas/testsuite/gas/loongarch/medium-call.d
++++ b/gas/testsuite/gas/loongarch/medium-call.d
+@@ -1,21 +1,26 @@
+ #as:
+ #objdump: -dr
++#skip: loongarch32-*-*
+ 
+ .*:[    ]+file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-.* <.text>:
++[ 	]*0000000000000000 <.text>:
+ [ 	]+0:[ 	]+1e000001[ 	]+pcaddu18i[ 	]+\$ra, 0
+ [ 	]+0: R_LARCH_CALL36[ 	]+a
++[ 	]+0: R_LARCH_RELAX[ 	]+\*ABS\*
+ [ 	]+4:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
+ [ 	]+8:[ 	]+1e000001[ 	]+pcaddu18i[ 	]+\$ra, 0
+ [ 	]+8: R_LARCH_CALL36[ 	]+a
++[ 	]+8: R_LARCH_RELAX[ 	]+\*ABS\*
+ [ 	]+c:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
+ [ 	]+10:[ 	]+1e00000c[ 	]+pcaddu18i[ 	]+\$t0, 0
+ [ 	]+10: R_LARCH_CALL36[ 	]+a
++[ 	]+10: R_LARCH_RELAX[ 	]+\*ABS\*
+ [ 	]+14:[ 	]+4c000180[ 	]+jr[ 	]+\$t0
+ [ 	]+18:[ 	]+1e00000c[ 	]+pcaddu18i[ 	]+\$t0, 0
+ [ 	]+18: R_LARCH_CALL36[ 	]+a
++[ 	]+18: R_LARCH_RELAX[ 	]+\*ABS\*
+ [ 	]+1c:[ 	]+4c000180[ 	]+jr[ 	]+\$t0
+diff --git a/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d
+index 6b164cfb..d685bd86 100644
+--- a/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d
++++ b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.d
+@@ -26,7 +26,7 @@ Disassembly of section .eh_frame:
+ [ 	]+2c:[ 	]+d6400016[ 	]+.word[ 	]+[ 	]+0xd6400016
+ [ 	]+2e: R_LARCH_ADD6[ 	]+L0\^A
+ [ 	]+2e: R_LARCH_SUB6[ 	]+L0\^A
+-[ 	]+30:[ 	]+4000160c[ 	]+beqz[ 	]+\$t4, 3145748[ 	]+# 300044 <L0\^A\+0x2ffffc>
++[ 	]+30:[ 	]+4000160c[ 	]+beqz[ 	]+\$t4, 3145748[ 	]+# 300044 <L0\^A\+0x2ffff4>
+ [ 	]+33: R_LARCH_ADD6[ 	]+L0\^A
+ [ 	]+33: R_LARCH_SUB6[ 	]+L0\^A
+ [ 	]+34:[ 	]+00160cd6[ 	]+orn[ 	]+\$fp, \$a2, \$sp
+@@ -39,14 +39,16 @@ Disassembly of section .eh_frame:
+ [ 	]+40:[ 	]+d6400016[ 	]+.word[ 	]+[ 	]+0xd6400016
+ [ 	]+42: R_LARCH_ADD6[ 	]+L0\^A
+ [ 	]+42: R_LARCH_SUB6[ 	]+L0\^A
+-[ 	]+44:[ 	]+4000160c[ 	]+beqz[ 	]+\$t4, 3145748[ 	]+# 300058 <L0\^A\+0x300010>
++[ 	]+44:[ 	]+4000160c[ 	]+beqz[ 	]+\$t4, 3145748[ 	]+# 300058 <L0\^A\+0x300008>
+ [ 	]+47: R_LARCH_ADD6[ 	]+L0\^A
+ [ 	]+47: R_LARCH_SUB6[ 	]+L0\^A
+ [ 	]+48:[ 	]+00160cd6[ 	]+orn[ 	]+\$fp, \$a2, \$sp
+ [ 	]+4c:[ 	]+160cd640[ 	]+lu32i.d[ 	]+\$zero, 26290
+ [ 	]+4c: R_LARCH_ADD6[ 	]+L0\^A
+ [ 	]+4c: R_LARCH_SUB6[ 	]+L0\^A
+-[ 	]+50:[ 	]+00d64000[ 	]+bstrpick.d[ 	]+\$zero, \$zero, 0x16, 0x10
++[ 	]+50:[ 	]+0cd64000[ 	]+.word[ 	]+[ 	]+0x0cd64000
+ [ 	]+51: R_LARCH_ADD6[ 	]+L0\^A
+ [ 	]+51: R_LARCH_SUB6[ 	]+L0\^A
+-[ 	]+54:[ 	]+00000000[ 	]+.word[ 	]+[ 	]+0x00000000
++[ 	]+54:[ 	]+d6400016[ 	]+.word[ 	]+[ 	]+0xd6400016
++[ 	]+56: R_LARCH_ADD6[ 	]+L0\^A
++[ 	]+56: R_LARCH_SUB6[ 	]+L0\^A
+diff --git a/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s
+index 2c67587b..021d296a 100644
+--- a/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s
++++ b/gas/testsuite/gas/loongarch/relax-cfi-fde-DW_CFA_advance_loc.s
+@@ -38,4 +38,8 @@ la.tls.ie $t0, a
+ la.tls.le $t0, a
+ .cfi_restore 22
+ 
++.cfi_def_cfa 22, 0
++call36 f
++.cfi_restore 22
++
+ .cfi_endproc
+diff --git a/gas/testsuite/gas/loongarch/relocs_64.d b/gas/testsuite/gas/loongarch/relocs_64.d
+index 35dde02f..ce5216a2 100644
+--- a/gas/testsuite/gas/loongarch/relocs_64.d
++++ b/gas/testsuite/gas/loongarch/relocs_64.d
+@@ -1,148 +1,148 @@
+-#as: -mthin-add-sub
++#as:
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-.*:     file format .*
++.*:[    ]+file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-0+ <.*>:
+-   0:	4c008ca4 	jirl        	\$a0, \$a1, 140
+-			0: R_LARCH_B16	.L1
+-   4:	40008880 	beqz        	\$a0, 136	# 8c <.L1>
+-			4: R_LARCH_B21	.L1
+-   8:	50008400 	b           	132	# 8c <.L1>
+-			8: R_LARCH_B26	.L1
+-   c:	14000004 	lu12i.w     	\$a0, 0
+-			c: R_LARCH_ABS_HI20	.L1
+-  10:	038000a4 	ori         	\$a0, \$a1, 0x0
+-			10: R_LARCH_ABS_LO12	.L1
+-  14:	16000004 	lu32i.d     	\$a0, 0
+-			14: R_LARCH_ABS64_LO20	.L1
+-  18:	03000085 	lu52i.d     	\$a1, \$a0, 0
+-			18: R_LARCH_ABS64_HI12	.L1
+-  1c:	1a000004 	pcalau12i   	\$a0, 0
+-			1c: R_LARCH_PCALA_HI20	.L1
+-  20:	02c00085 	addi.d      	\$a1, \$a0, 0
+-			20: R_LARCH_PCALA_LO12	.L1
+-  24:	16000004 	lu32i.d     	\$a0, 0
+-			24: R_LARCH_PCALA64_LO20	.L1
+-  28:	03000085 	lu52i.d     	\$a1, \$a0, 0
+-			28: R_LARCH_PCALA64_HI12	.L1
+-  2c:	1a000004 	pcalau12i   	\$a0, 0
+-			2c: R_LARCH_GOT_PC_HI20	.L1
+-  30:	28c00085 	ld.d        	\$a1, \$a0, 0
+-			30: R_LARCH_GOT_PC_LO12	.L1
+-  34:	16000004 	lu32i.d     	\$a0, 0
+-			34: R_LARCH_GOT64_PC_LO20	.L1
+-  38:	03000085 	lu52i.d     	\$a1, \$a0, 0
+-			38: R_LARCH_GOT64_PC_HI12	.L1
+-  3c:	14000004 	lu12i.w     	\$a0, 0
+-			3c: R_LARCH_GOT_HI20	.L1
+-  40:	03800084 	ori         	\$a0, \$a0, 0x0
+-			40: R_LARCH_GOT_LO12	.L1
+-  44:	16000004 	lu32i.d     	\$a0, 0
+-			44: R_LARCH_GOT64_LO20	.L1
+-  48:	03000085 	lu52i.d     	\$a1, \$a0, 0
+-			48: R_LARCH_GOT64_HI12	.L1
+-  4c:	14000004 	lu12i.w     	\$a0, 0
+-			4c: R_LARCH_TLS_LE_HI20	TLSL1
+-			4c: R_LARCH_RELAX	\*ABS\*
+-  50:	03800085 	ori         	\$a1, \$a0, 0x0
+-			50: R_LARCH_TLS_LE_LO12	TLSL1
+-			50: R_LARCH_RELAX	\*ABS\*
+-  54:	16000004 	lu32i.d     	\$a0, 0
+-			54: R_LARCH_TLS_LE64_LO20	TLSL1
+-			54: R_LARCH_RELAX	\*ABS\*
+-  58:	03000085 	lu52i.d     	\$a1, \$a0, 0
+-			58: R_LARCH_TLS_LE64_HI12	TLSL1
+-			58: R_LARCH_RELAX	\*ABS\*
+-  5c:	1a000004 	pcalau12i   	\$a0, 0
+-			5c: R_LARCH_TLS_IE_PC_HI20	TLSL1
+-  60:	02c00005 	li.d        	\$a1, 0
+-			60: R_LARCH_TLS_IE_PC_LO12	TLSL1
+-  64:	16000005 	lu32i.d     	\$a1, 0
+-			64: R_LARCH_TLS_IE64_PC_LO20	TLSL1
+-  68:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			68: R_LARCH_TLS_IE64_PC_HI12	TLSL1
+-  6c:	14000004 	lu12i.w     	\$a0, 0
+-			6c: R_LARCH_TLS_IE_HI20	TLSL1
+-  70:	03800084 	ori         	\$a0, \$a0, 0x0
+-			70: R_LARCH_TLS_IE_LO12	TLSL1
+-  74:	16000004 	lu32i.d     	\$a0, 0
+-			74: R_LARCH_TLS_IE64_LO20	TLSL1
+-  78:	03000084 	lu52i.d     	\$a0, \$a0, 0
+-			78: R_LARCH_TLS_IE64_HI12	TLSL1
+-  7c:	1a000004 	pcalau12i   	\$a0, 0
+-			7c: R_LARCH_TLS_LD_PC_HI20	TLSL1
+-  80:	14000004 	lu12i.w     	\$a0, 0
+-			80: R_LARCH_TLS_LD_HI20	TLSL1
+-  84:	1a000004 	pcalau12i   	\$a0, 0
+-			84: R_LARCH_TLS_GD_PC_HI20	TLSL1
+-  88:	14000004 	lu12i.w     	\$a0, 0
+-			88: R_LARCH_TLS_GD_HI20	TLSL1
+-
+-0+8c <.L1>:
+-  8c:	00000000 	.word		0x00000000
+-			8c: R_LARCH_32_PCREL	.L2
+-
+-0+90 <.L2>:
+-	...
+-			90: R_LARCH_64_PCREL	.L3
+-
+-0+98 <.L3>:
+-  98:	03400000 	nop
+-  9c:	03400000 	nop
+-			9c: R_LARCH_ALIGN	.*
+-  a0:	03400000 	nop
+-  a4:	03400000 	nop
+-  a8:	1800000c 	pcaddi      	\$t0, 0
+-			a8: R_LARCH_PCREL20_S2	.L1
+-  ac:	1e000001 	pcaddu18i   	\$ra, 0
+-			ac: R_LARCH_CALL36	a
+-  b0:	4c000021 	jirl        	\$ra, \$ra, 0
+-  b4:	1a000004 	pcalau12i   	\$a0, 0
+-			b4: R_LARCH_TLS_DESC_PC_HI20	TLSL1
+-  b8:	02c000a5 	addi.d      	\$a1, \$a1, 0
+-			b8: R_LARCH_TLS_DESC_PC_LO12	TLSL1
+-  bc:	16000005 	lu32i.d     	\$a1, 0
+-			bc: R_LARCH_TLS_DESC64_PC_LO20	TLSL1
+-  c0:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			c0: R_LARCH_TLS_DESC64_PC_HI12	TLSL1
+-  c4:	14000004 	lu12i.w     	\$a0, 0
+-			c4: R_LARCH_TLS_DESC_HI20	TLSL1
+-  c8:	03800084 	ori         	\$a0, \$a0, 0x0
+-			c8: R_LARCH_TLS_DESC_LO12	TLSL1
+-  cc:	16000004 	lu32i.d     	\$a0, 0
+-			cc: R_LARCH_TLS_DESC64_LO20	TLSL1
+-  d0:	03000084 	lu52i.d     	\$a0, \$a0, 0
+-			d0: R_LARCH_TLS_DESC64_HI12	TLSL1
+-  d4:	28c00081 	ld.d        	\$ra, \$a0, 0
+-			d4: R_LARCH_TLS_DESC_LD	TLSL1
+-  d8:	4c000021 	jirl        	\$ra, \$ra, 0
+-			d8: R_LARCH_TLS_DESC_CALL	TLSL1
+-  dc:	14000004 	lu12i.w     	\$a0, 0
+-			dc: R_LARCH_TLS_LE_HI20_R	TLSL1
+-			dc: R_LARCH_RELAX	\*ABS\*
+-  e0:	001090a5 	add.d       	\$a1, \$a1, \$a0
+-			e0: R_LARCH_TLS_LE_ADD_R	TLSL1
+-			e0: R_LARCH_RELAX	\*ABS\*
+-  e4:	29800085 	st.w        	\$a1, \$a0, 0
+-			e4: R_LARCH_TLS_LE_LO12_R	TLSL1
+-			e4: R_LARCH_RELAX	\*ABS\*
+-  e8:	14000004 	lu12i.w     	\$a0, 0
+-			e8: R_LARCH_TLS_LE_HI20_R	TLSL1
+-			e8: R_LARCH_RELAX	\*ABS\*
+-  ec:	001090a5 	add.d       	\$a1, \$a1, \$a0
+-			ec: R_LARCH_TLS_LE_ADD_R	TLSL1
+-			ec: R_LARCH_RELAX	\*ABS\*
+-  f0:	29800085 	st.w        	\$a1, \$a0, 0
+-			f0: R_LARCH_TLS_LE_LO12_R	TLSL1
+-			f0: R_LARCH_RELAX	\*ABS\*
+-  f4:	18000004 	pcaddi      	\$a0, 0
+-			f4: R_LARCH_TLS_LD_PCREL20_S2	TLSL1
+-  f8:	18000004 	pcaddi      	\$a0, 0
+-			f8: R_LARCH_TLS_GD_PCREL20_S2	TLSL1
+-  fc:	18000004 	pcaddi      	\$a0, 0
+-			fc: R_LARCH_TLS_DESC_PCREL20_S2	TLSL1
++[ 	]*0000000000000000 <.L1-0x8c>:
++[ 	]+0:[ 	]+4c008ca4[ 	]+jirl[ 	]+\$a0, \$a1, 140
++[ 	]+0: R_LARCH_B16[ 	]+.L1
++[ 	]+4:[ 	]+40008880[ 	]+beqz[ 	]+\$a0, 136[ 	]+# 8c <.L1>
++[ 	]+4: R_LARCH_B21[ 	]+.L1
++[ 	]+8:[ 	]+50008400[ 	]+b[ 	]+132[ 	]+# 8c <.L1>
++[ 	]+8: R_LARCH_B26[ 	]+.L1
++[ 	]+c:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+c: R_LARCH_ABS_HI20[ 	]+.L1
++[ 	]+10:[ 	]+038000a4[ 	]+ori[ 	]+\$a0, \$a1, 0x0
++[ 	]+10: R_LARCH_ABS_LO12[ 	]+.L1
++[ 	]+14:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+14: R_LARCH_ABS64_LO20[ 	]+.L1
++[ 	]+18:[ 	]+03000085[ 	]+lu52i.d[ 	]+\$a1, \$a0, 0
++[ 	]+18: R_LARCH_ABS64_HI12[ 	]+.L1
++[ 	]+1c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+1c: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+20:[ 	]+02c00085[ 	]+addi.d[ 	]+\$a1, \$a0, 0
++[ 	]+20: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+24:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+24: R_LARCH_PCALA64_LO20[ 	]+.L1
++[ 	]+28:[ 	]+03000085[ 	]+lu52i.d[ 	]+\$a1, \$a0, 0
++[ 	]+28: R_LARCH_PCALA64_HI12[ 	]+.L1
++[ 	]+2c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+2c: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+30:[ 	]+28c00085[ 	]+ld.d[ 	]+\$a1, \$a0, 0
++[ 	]+30: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+34:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+34: R_LARCH_GOT64_PC_LO20[ 	]+.L1
++[ 	]+38:[ 	]+03000085[ 	]+lu52i.d[ 	]+\$a1, \$a0, 0
++[ 	]+38: R_LARCH_GOT64_PC_HI12[ 	]+.L1
++[ 	]+3c:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+3c: R_LARCH_GOT_HI20[ 	]+.L1
++[ 	]+40:[ 	]+03800084[ 	]+ori[ 	]+\$a0, \$a0, 0x0
++[ 	]+40: R_LARCH_GOT_LO12[ 	]+.L1
++[ 	]+44:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+44: R_LARCH_GOT64_LO20[ 	]+.L1
++[ 	]+48:[ 	]+03000085[ 	]+lu52i.d[ 	]+\$a1, \$a0, 0
++[ 	]+48: R_LARCH_GOT64_HI12[ 	]+.L1
++[ 	]+4c:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+4c: R_LARCH_TLS_LE_HI20[ 	]+TLSL1
++[ 	]+4c: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+50:[ 	]+03800085[ 	]+ori[ 	]+\$a1, \$a0, 0x0
++[ 	]+50: R_LARCH_TLS_LE_LO12[ 	]+TLSL1
++[ 	]+50: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+54:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+54: R_LARCH_TLS_LE64_LO20[ 	]+TLSL1
++[ 	]+54: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+58:[ 	]+03000085[ 	]+lu52i.d[ 	]+\$a1, \$a0, 0
++[ 	]+58: R_LARCH_TLS_LE64_HI12[ 	]+TLSL1
++[ 	]+58: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+5c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+5c: R_LARCH_TLS_IE_PC_HI20[ 	]+TLSL1
++[ 	]+60:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+60: R_LARCH_TLS_IE_PC_LO12[ 	]+TLSL1
++[ 	]+64:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+64: R_LARCH_TLS_IE64_PC_LO20[ 	]+TLSL1
++[ 	]+68:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+68: R_LARCH_TLS_IE64_PC_HI12[ 	]+TLSL1
++[ 	]+6c:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+6c: R_LARCH_TLS_IE_HI20[ 	]+TLSL1
++[ 	]+70:[ 	]+03800084[ 	]+ori[ 	]+\$a0, \$a0, 0x0
++[ 	]+70: R_LARCH_TLS_IE_LO12[ 	]+TLSL1
++[ 	]+74:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+74: R_LARCH_TLS_IE64_LO20[ 	]+TLSL1
++[ 	]+78:[ 	]+03000084[ 	]+lu52i.d[ 	]+\$a0, \$a0, 0
++[ 	]+78: R_LARCH_TLS_IE64_HI12[ 	]+TLSL1
++[ 	]+7c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+7c: R_LARCH_TLS_LD_PC_HI20[ 	]+TLSL1
++[ 	]+80:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+80: R_LARCH_TLS_LD_HI20[ 	]+TLSL1
++[ 	]+84:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+84: R_LARCH_TLS_GD_PC_HI20[ 	]+TLSL1
++[ 	]+88:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+88: R_LARCH_TLS_GD_HI20[ 	]+TLSL1
++000000000000008c <.L1>:
++[ 	]+8c:[ 	]+00000000[ 	]+.word[ 	]+[ 	]+0x00000000
++[ 	]+8c: R_LARCH_ADD32[ 	]+.L2
++[ 	]+8c: R_LARCH_SUB32[ 	]+.L1
++0000000000000090 <.L2>:
++[ 	]+...
++[ 	]+90: R_LARCH_ADD64[ 	]+.L3
++[ 	]+90: R_LARCH_SUB64[ 	]+.L2
++0000000000000098 <.L3>:
++[ 	]+98:[ 	]+03400000[ 	]+nop
++[ 	]+9c:[ 	]+03400000[ 	]+nop
++[ 	]+9c: R_LARCH_ALIGN[ 	]+\*ABS\*\+0xc
++[ 	]+a0:[ 	]+03400000[ 	]+nop
++[ 	]+a4:[ 	]+03400000[ 	]+nop
++[ 	]+a8:[ 	]+1800000c[ 	]+pcaddi[ 	]+\$t0, 0
++[ 	]+a8: R_LARCH_PCREL20_S2[ 	]+.L1
++[ 	]+ac:[ 	]+1e000001[ 	]+pcaddu18i[ 	]+\$ra, 0
++[ 	]+ac: R_LARCH_CALL36[ 	]+a
++[ 	]+ac: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+b0:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
++[ 	]+b4:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+b4: R_LARCH_TLS_DESC_PC_HI20[ 	]+TLSL1
++[ 	]+b8:[ 	]+02c000a5[ 	]+addi.d[ 	]+\$a1, \$a1, 0
++[ 	]+b8: R_LARCH_TLS_DESC_PC_LO12[ 	]+TLSL1
++[ 	]+bc:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+bc: R_LARCH_TLS_DESC64_PC_LO20[ 	]+TLSL1
++[ 	]+c0:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+c0: R_LARCH_TLS_DESC64_PC_HI12[ 	]+TLSL1
++[ 	]+c4:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+c4: R_LARCH_TLS_DESC_HI20[ 	]+TLSL1
++[ 	]+c8:[ 	]+03800084[ 	]+ori[ 	]+\$a0, \$a0, 0x0
++[ 	]+c8: R_LARCH_TLS_DESC_LO12[ 	]+TLSL1
++[ 	]+cc:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+cc: R_LARCH_TLS_DESC64_LO20[ 	]+TLSL1
++[ 	]+d0:[ 	]+03000084[ 	]+lu52i.d[ 	]+\$a0, \$a0, 0
++[ 	]+d0: R_LARCH_TLS_DESC64_HI12[ 	]+TLSL1
++[ 	]+d4:[ 	]+28c00081[ 	]+ld.d[ 	]+\$ra, \$a0, 0
++[ 	]+d4: R_LARCH_TLS_DESC_LD[ 	]+TLSL1
++[ 	]+d8:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
++[ 	]+d8: R_LARCH_TLS_DESC_CALL[ 	]+TLSL1
++[ 	]+dc:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+dc: R_LARCH_TLS_LE_HI20_R[ 	]+TLSL1
++[ 	]+dc: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+e0:[ 	]+001090a5[ 	]+add.d[ 	]+\$a1, \$a1, \$a0
++[ 	]+e0: R_LARCH_TLS_LE_ADD_R[ 	]+TLSL1
++[ 	]+e0: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+e4:[ 	]+29800085[ 	]+st.w[ 	]+\$a1, \$a0, 0
++[ 	]+e4: R_LARCH_TLS_LE_LO12_R[ 	]+TLSL1
++[ 	]+e4: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+e8:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+e8: R_LARCH_TLS_LE_HI20_R[ 	]+TLSL1
++[ 	]+e8: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+ec:[ 	]+001090a5[ 	]+add.d[ 	]+\$a1, \$a1, \$a0
++[ 	]+ec: R_LARCH_TLS_LE_ADD_R[ 	]+TLSL1
++[ 	]+ec: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+f0:[ 	]+29800085[ 	]+st.w[ 	]+\$a1, \$a0, 0
++[ 	]+f0: R_LARCH_TLS_LE_LO12_R[ 	]+TLSL1
++[ 	]+f0: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+f4:[ 	]+18000004[ 	]+pcaddi[ 	]+\$a0, 0
++[ 	]+f4: R_LARCH_TLS_LD_PCREL20_S2[ 	]+TLSL1
++[ 	]+f8:[ 	]+18000004[ 	]+pcaddi[ 	]+\$a0, 0
++[ 	]+f8: R_LARCH_TLS_GD_PCREL20_S2[ 	]+TLSL1
++[ 	]+fc:[ 	]+18000004[ 	]+pcaddi[ 	]+\$a0, 0
++[ 	]+fc: R_LARCH_TLS_DESC_PCREL20_S2[ 	]+TLSL1
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index c839f525..0121cad9 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -52,6 +52,8 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "underflow_s_5_20"
+     run_dump_test "tls-le-norelax"
+     run_dump_test "tls-le-relax"
++    run_dump_test "relax-medium-call"
++    run_dump_test "relax-medium-call-1"
+ }
+ 
+ if [istarget "loongarch32-*-*"] {
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d
+new file mode 100644
+index 00000000..c8ee9333
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.d
+@@ -0,0 +1,21 @@
++#ld: -e0 -Ttext=0x120000000 --section-start=ta=0x118000000 --section-start=tb=0x127fffffc
++#objdump: -d -j .text
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++[ 	]*0000000120000000 <__bss_start-0x4030>:
++[ 	]+120000000:[ 	]+54000200[ 	]+bl[ 	]+-134217728[ 	]+# 118000000 <a>
++[ 	]+120000004:[ 	]+1fffc001[ 	]+pcaddu18i[ 	]+\$ra, -512
++[ 	]+120000008:[ 	]+4ffffc21[ 	]+jirl[ 	]+\$ra, \$ra, -4
++[ 	]+12000000c:[ 	]+50000200[ 	]+b[ 	]+-134217728[ 	]+# 11800000c <b>
++[ 	]+120000010:[ 	]+1fffc00c[ 	]+pcaddu18i[ 	]+\$t0, -512
++[ 	]+120000014:[ 	]+4ffffd80[ 	]+jirl[ 	]+\$zero, \$t0, -4
++[ 	]+120000018:[ 	]+1e004001[ 	]+pcaddu18i[ 	]+\$ra, 512
++[ 	]+12000001c:[ 	]+4c000421[ 	]+jirl[ 	]+\$ra, \$ra, 4
++[ 	]+120000020:[ 	]+57fffdff[ 	]+bl[ 	]+134217724[ 	]+# 12800001c <c>
++[ 	]+120000024:[ 	]+1e00400c[ 	]+pcaddu18i[ 	]+\$t0, 512
++[ 	]+120000028:[ 	]+4c000580[ 	]+jirl[ 	]+\$zero, \$t0, 4
++[ 	]+12000002c:[ 	]+53fffdff[ 	]+b[ 	]+134217724[ 	]+# 128000028 <d>
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s
+new file mode 100644
+index 00000000..5266fdab
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call-1.s
+@@ -0,0 +1,43 @@
++.section "ta", "ax"
++a:
++  ret
++  ret
++  ret
++b:
++  ret
++
++.text
++  pcaddu18i $ra, %call36(a) # min offset, can relax
++  jirl	    $ra, $ra, 0
++  pcaddu18i $ra, %call36(a) # overflow, not relax
++  jirl	    $ra, $ra, 0
++  pcaddu18i $t0, %call36(b) # min offset, can relax
++  jirl	    $zero, $t0, 0
++  pcaddu18i $t0, %call36(b) # overflow, not relax
++  jirl	    $zero, $t0, 0
++
++  pcaddu18i $ra, %call36(c) # overflow, not relax
++  jirl	    $ra, $ra, 0
++  pcaddu18i $ra, %call36(c) # max offset, can relax
++  jirl	    $ra, $ra, 0
++  pcaddu18i $t0, %call36(d) # overflow, no relax
++  jirl	    $zero, $t0, 0
++  pcaddu18i $t0, %call36(d) # max offset, can relax
++  jirl	    $zero, $t0, 0
++
++.section "tb", "ax"
++  ret
++  ret
++  ret
++  ret
++  ret
++  ret
++  ret
++  ret
++c:
++  ret
++  ret
++  ret
++d:
++  ret
++
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call.d b/ld/testsuite/ld-loongarch-elf/relax-medium-call.d
+new file mode 100644
+index 00000000..c8ee9333
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call.d
+@@ -0,0 +1,21 @@
++#ld: -e0 -Ttext=0x120000000 --section-start=ta=0x118000000 --section-start=tb=0x127fffffc
++#objdump: -d -j .text
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++[ 	]*0000000120000000 <__bss_start-0x4030>:
++[ 	]+120000000:[ 	]+54000200[ 	]+bl[ 	]+-134217728[ 	]+# 118000000 <a>
++[ 	]+120000004:[ 	]+1fffc001[ 	]+pcaddu18i[ 	]+\$ra, -512
++[ 	]+120000008:[ 	]+4ffffc21[ 	]+jirl[ 	]+\$ra, \$ra, -4
++[ 	]+12000000c:[ 	]+50000200[ 	]+b[ 	]+-134217728[ 	]+# 11800000c <b>
++[ 	]+120000010:[ 	]+1fffc00c[ 	]+pcaddu18i[ 	]+\$t0, -512
++[ 	]+120000014:[ 	]+4ffffd80[ 	]+jirl[ 	]+\$zero, \$t0, -4
++[ 	]+120000018:[ 	]+1e004001[ 	]+pcaddu18i[ 	]+\$ra, 512
++[ 	]+12000001c:[ 	]+4c000421[ 	]+jirl[ 	]+\$ra, \$ra, 4
++[ 	]+120000020:[ 	]+57fffdff[ 	]+bl[ 	]+134217724[ 	]+# 12800001c <c>
++[ 	]+120000024:[ 	]+1e00400c[ 	]+pcaddu18i[ 	]+\$t0, 512
++[ 	]+120000028:[ 	]+4c000580[ 	]+jirl[ 	]+\$zero, \$t0, 4
++[ 	]+12000002c:[ 	]+53fffdff[ 	]+b[ 	]+134217724[ 	]+# 128000028 <d>
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-medium-call.s b/ld/testsuite/ld-loongarch-elf/relax-medium-call.s
+new file mode 100644
+index 00000000..c0521b65
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-medium-call.s
+@@ -0,0 +1,35 @@
++.section "ta", "ax"
++a:
++  ret
++  ret
++  ret
++b:
++  ret
++
++.text
++  call36 a	# min offset, can relax
++  call36 a	# overflow, not relax
++  tail36 $t0, b	# min offset, can relax
++  tail36 $t0, b	# overflow, not relax
++
++  call36 c	# overflow, not relax
++  call36 c	# max offset, can relax
++  tail36 $t0, d	# overflow, no relax
++  tail36 $t0, d # max offset, can relax
++
++.section "tb", "ax"
++  ret
++  ret
++  ret
++  ret
++  ret
++  ret
++  ret
++  ret
++c:
++  ret
++  ret
++  ret
++d:
++  ret
++
+-- 
+2.33.0
+

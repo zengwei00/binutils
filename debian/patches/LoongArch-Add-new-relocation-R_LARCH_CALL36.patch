@@ -1,0 +1,278 @@
+From 27daffe58e9d1494a1e3c66813526ec4e8e8480b Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 28 Sep 2023 16:41:15 +0800
+Subject: [PATCH 020/123] LoongArch: Add new relocation R_LARCH_CALL36
+
+R_LARCH_CALL36 is used for medium code model function call pcaddu18i+jirl, and
+these two instructions must adjacent.
+
+The LoongArch ABI v2.20 at here: https://github.com/loongson/la-abi-specs.
+---
+ bfd/bfd-in2.h                                 |  4 +++-
+ bfd/elfnn-loongarch.c                         | 19 ++++++++++-----
+ bfd/elfxx-loongarch.c                         | 24 +++++++++++++++++++
+ bfd/libbfd.h                                  |  1 +
+ bfd/reloc.c                                   |  3 +++
+ gas/config/tc-loongarch.c                     |  6 ++++-
+ gas/testsuite/gas/loongarch/medium-call.d     | 15 ++++++++++++
+ gas/testsuite/gas/loongarch/medium-call.s     |  6 +++++
+ include/elf/loongarch.h                       |  2 ++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     | 12 ++++++++++
+ ld/testsuite/ld-loongarch-elf/medium-call.s   |  7 ++++++
+ 11 files changed, 91 insertions(+), 8 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/medium-call.d
+ create mode 100644 gas/testsuite/gas/loongarch/medium-call.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/medium-call.s
+
+diff --git a/bfd/bfd-in2.h b/bfd/bfd-in2.h
+index 933b8ec2..86e7139f 100644
+--- a/bfd/bfd-in2.h
++++ b/bfd/bfd-in2.h
+@@ -7343,7 +7343,9 @@ assembler and not (currently) written to any object files.  */
+   BFD_RELOC_LARCH_ADD_ULEB128,
+   BFD_RELOC_LARCH_SUB_ULEB128,
+   BFD_RELOC_LARCH_64_PCREL,
+-  BFD_RELOC_UNUSED };
++  BFD_RELOC_LARCH_CALL36,
++  BFD_RELOC_UNUSED
++};
+ typedef enum bfd_reloc_code_real bfd_reloc_code_real_type;
+ 
+ reloc_howto_type *bfd_reloc_type_lookup
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 09c98713..20dd0640 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -780,6 +780,7 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	case R_LARCH_B16:
+ 	case R_LARCH_B21:
+ 	case R_LARCH_B26:
++	case R_LARCH_CALL36:
+ 	  if (h != NULL)
+ 	    {
+ 	      h->needs_plt = 1;
+@@ -1884,20 +1885,24 @@ loongarch_check_offset (const Elf_Internal_Rela *rel,
+     ret;					      \
+    })
+ 
++/* Write immediate to instructions.  */
++
+ static bfd_reloc_status_type
+ loongarch_reloc_rewrite_imm_insn (const Elf_Internal_Rela *rel,
+ 				  const asection *input_section ATTRIBUTE_UNUSED,
+ 				  reloc_howto_type *howto, bfd *input_bfd,
+ 				  bfd_byte *contents, bfd_vma reloc_val)
+ {
+-  int bits = bfd_get_reloc_size (howto) * 8;
+-  uint32_t insn = bfd_get (bits, input_bfd, contents + rel->r_offset);
+-
++  /* Adjust the immediate based on alignment and
++     its position in the instruction.  */
+   if (!loongarch_adjust_reloc_bitsfield (input_bfd, howto, &reloc_val))
+     return bfd_reloc_overflow;
+ 
+-  insn = (insn & (uint32_t)howto->src_mask)
+-    | ((insn & (~(uint32_t)howto->dst_mask)) | reloc_val);
++  int bits = bfd_get_reloc_size (howto) * 8;
++  uint64_t insn = bfd_get (bits, input_bfd, contents + rel->r_offset);
++
++  /* Write immediate to instruction.  */
++  insn = (insn & ~howto->dst_mask) | (reloc_val & howto->dst_mask);
+ 
+   bfd_put (bits, input_bfd, insn, contents + rel->r_offset);
+ 
+@@ -2120,6 +2125,7 @@ perform_relocation (const Elf_Internal_Rela *rel, asection *input_section,
+     case R_LARCH_TLS_GD_PC_HI20:
+     case R_LARCH_TLS_GD_HI20:
+     case R_LARCH_PCREL20_S2:
++    case R_LARCH_CALL36:
+       r = loongarch_check_offset (rel, input_section);
+       if (r != bfd_reloc_ok)
+ 	break;
+@@ -3120,9 +3126,10 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	  break;
+ 
+ 	/* New reloc types.  */
++	case R_LARCH_B16:
+ 	case R_LARCH_B21:
+ 	case R_LARCH_B26:
+-	case R_LARCH_B16:
++	case R_LARCH_CALL36:
+ 	  unresolved_reloc = false;
+ 	  if (is_undefweak)
+ 	    {
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index 7f298c08..d93b7904 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -1547,6 +1547,24 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 NULL,					/* adjust_reloc_bits */
+ 	 NULL),					/* larch_reloc_type_name */
+ 
++  /* Used for medium code model function call pcaddu18i+jirl,
++     these two instructions must adjacent.  */
++  LOONGARCH_HOWTO (R_LARCH_CALL36,		/* type (110).  */
++	 2,					/* rightshift.  */
++	 8,					/* size.  */
++	 36,					/* bitsize.  */
++	 true,					/* pc_relative.  */
++	 0,					/* bitpos.  */
++	 complain_overflow_signed,		/* complain_on_overflow.  */
++	 bfd_elf_generic_reloc,			/* special_function.  */
++	 "R_LARCH_CALL36",			/* name.  */
++	 false,					/* partial_inplace.  */
++	 0,					/* src_mask.  */
++	 0x03fffc0001ffffe0,			/* dst_mask.  */
++	 false,					/* pcrel_offset.  */
++	 BFD_RELOC_LARCH_CALL36,		/* bfd_reloc_code_real_type.  */
++	 reloc_sign_bits,			/* adjust_reloc_bits.  */
++	 "call36"),				/* larch_reloc_type_name.  */
+ };
+ 
+ reloc_howto_type *
+@@ -1726,6 +1744,12 @@ reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
+       /* Perform insn bits field. 15:0<<10, 20:16>>16.  */
+       val = ((val & 0xffff) << 10) | ((val >> 16) & 0x1f);
+       break;
++    case R_LARCH_CALL36:
++      /* 0x8000: If low 16-bit immediate greater than 0x7fff,
++	 it become to a negative number due to sign-extended,
++	 so the high part need to add 0x8000.  */
++      val = (((val + 0x8000) >> 16) << 5) | (((val & 0xffff) << 10) << 32);
++      break;
+     default:
+       val <<= howto->bitpos;
+       break;
+diff --git a/bfd/libbfd.h b/bfd/libbfd.h
+index d4fb3107..297f3048 100644
+--- a/bfd/libbfd.h
++++ b/bfd/libbfd.h
+@@ -3525,6 +3525,7 @@ static const char *const bfd_reloc_code_real_names[] = { "@@uninitialized@@",
+   "BFD_RELOC_LARCH_ADD_ULEB128",
+   "BFD_RELOC_LARCH_SUB_ULEB128",
+   "BFD_RELOC_LARCH_64_PCREL",
++  "BFD_RELOC_LARCH_CALL36",
+  "@@overflow: BFD_RELOC_UNUSED@@",
+ };
+ #endif
+diff --git a/bfd/reloc.c b/bfd/reloc.c
+index fbc67ac7..70004f04 100644
+--- a/bfd/reloc.c
++++ b/bfd/reloc.c
+@@ -8156,6 +8156,9 @@ ENUMX
+ ENUMX
+   BFD_RELOC_LARCH_64_PCREL
+ 
++ENUMX
++  BFD_RELOC_LARCH_CALL36
++
+ ENUMDOC
+   LARCH relocations.
+ 
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 59232832..367a0b6c 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -682,7 +682,7 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 		      esc_ch1, esc_ch2, bit_field, arg);
+ 
+ 	  if (ip->reloc_info[0].type >= BFD_RELOC_LARCH_B16
+-	      && ip->reloc_info[0].type < BFD_RELOC_LARCH_64_PCREL)
++	      && ip->reloc_info[0].type < BFD_RELOC_UNUSED)
+ 	    {
+ 	      /* As we compact stack-relocs, it is no need for pop operation.
+ 		 But break out until here in order to check the imm field.
+@@ -956,6 +956,10 @@ move_insn (struct loongarch_cl_insn *insn, fragS *frag, long where)
+ static void
+ append_fixed_insn (struct loongarch_cl_insn *insn)
+ {
++  /* Ensure the jirl is emitted to the same frag as the pcaddu18i.  */
++  if (BFD_RELOC_LARCH_CALL36 == insn->reloc_info[0].type)
++    frag_grow (8);
++
+   char *f = frag_more (insn->insn_length);
+   move_insn (insn, frag_now, f - frag_now->fr_literal);
+ }
+diff --git a/gas/testsuite/gas/loongarch/medium-call.d b/gas/testsuite/gas/loongarch/medium-call.d
+new file mode 100644
+index 00000000..4183818c
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/medium-call.d
+@@ -0,0 +1,15 @@
++#as:
++#objdump: -dr
++
++.*:[    ]+file format .*
++
++
++Disassembly of section .text:
++
++.* <.text>:
++[ 	]+0:[ 	]+1e000001[ 	]+pcaddu18i[ 	]+\$ra, 0
++[ 	]+0: R_LARCH_CALL36[ 	]+a
++[ 	]+4:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
++[ 	]+8:[ 	]+1e00000c[ 	]+pcaddu18i[ 	]+\$t0, 0
++[ 	]+8: R_LARCH_CALL36[ 	]+a
++[ 	]+c:[ 	]+4c000180[ 	]+jr[ 	]+\$t0
+diff --git a/gas/testsuite/gas/loongarch/medium-call.s b/gas/testsuite/gas/loongarch/medium-call.s
+new file mode 100644
+index 00000000..f2977d1c
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/medium-call.s
+@@ -0,0 +1,6 @@
++  # call .L1, r1(ra) temp register, r1(ra) return register.
++  pcaddu18i $r1, %call36(a)
++  jirl	    $r1, $r1, 0
++  # tail .L1, r12(t0) temp register, r0(zero) return register.
++  pcaddu18i $r12, %call36(a)
++  jirl	    $r0, $r12, 0
+diff --git a/include/elf/loongarch.h b/include/elf/loongarch.h
+index e31395e1..34719ee8 100644
+--- a/include/elf/loongarch.h
++++ b/include/elf/loongarch.h
+@@ -251,6 +251,8 @@ RELOC_NUMBER (R_LARCH_SUB_ULEB128, 108)
+ 
+ RELOC_NUMBER (R_LARCH_64_PCREL, 109)
+ 
++RELOC_NUMBER (R_LARCH_CALL36, 110)
++
+ END_RELOC_NUMBERS (R_LARCH_count)
+ 
+ /* Processor specific flags for the ELF header e_flags field.  */
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index b95cc53e..1fc70d0a 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -55,4 +55,16 @@ if [istarget "loongarch64-*-*"] {
+ 	      "64_pcrel" \
+ 	  ] \
+       ]
++
++  run_ld_link_tests \
++      [list \
++	  [list \
++	      "medium code model call" \
++	      "-e 0x0" "" \
++	      "" \
++	      {medium-call.s} \
++	      {} \
++	      "medium-call" \
++	  ] \
++      ]
+ }
+diff --git a/ld/testsuite/ld-loongarch-elf/medium-call.s b/ld/testsuite/ld-loongarch-elf/medium-call.s
+new file mode 100644
+index 00000000..4d1888b7
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/medium-call.s
+@@ -0,0 +1,7 @@
++.L1:
++  # call .L1, r1(ra) temp register, r1(ra) return register.
++  pcaddu18i $r1, %call36(.L1)
++  jirl	    $r1, $r1, 0
++  # tail .L1, r12(t0) temp register, r0(zero) return register.
++  pcaddu18i $r12, %call36(.L1)
++  jirl	    $r0, $r12, 0
+-- 
+2.33.0
+

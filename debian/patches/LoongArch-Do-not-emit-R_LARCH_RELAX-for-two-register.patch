@@ -1,0 +1,754 @@
+From ef4712b21aa2ab233282bc3aa38f21e6957a9db9 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Wed, 10 Jan 2024 09:55:13 +0800
+Subject: [PATCH 045/123] LoongArch: Do not emit R_LARCH_RELAX for two register
+ macros
+
+For two register macros (e.g. la.local $t0, $t1, symbol) used in extreme code
+model, do not emit R_LARCH_RELAX relocations.
+---
+ gas/config/tc-loongarch.c                     |  45 ++-
+ .../gas/loongarch/macro_op_extreme_pc.d       | 151 ++++---
+ .../gas/loongarch/tlsdesc_large_pc.d          |  58 ++-
+ ld/testsuite/ld-loongarch-elf/macro_op.d      | 376 +++++++++---------
+ 4 files changed, 311 insertions(+), 319 deletions(-)
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index fad18fcd..1ae57b45 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -71,7 +71,17 @@ struct loongarch_cl_insn
+   long where;
+   /* The relocs associated with the instruction, if any.  */
+   fixS *fixp[MAX_RELOC_NUMBER_A_INSN];
+-  long macro_id;
++  /* Represents macros or instructions expanded from macro.
++     For la.local -> la.pcrel or la.pcrel -> pcalau12i + addi.d, la.pcrel,
++     pcalau12i and addi.d are expanded from macro.
++     The first bit represents expanded from one register macro (e.g.
++     la.local $t0, symbol) and emit R_LARCH_RELAX relocations.
++     The second bit represents expanded from two registers macro (e.g.
++     la.local $t0, $t1, symbol) and not emit R_LARCH_RELAX relocations.
++
++     The macros or instructions expanded from macros do not output register
++     deprecated warning.  */
++  unsigned int expand_from_macro;
+ };
+ 
+ #ifndef DEFAULT_ARCH
+@@ -722,7 +732,10 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 		  ip->reloc_info[ip->reloc_num].value = const_0;
+ 		  ip->reloc_num++;
+ 		}
+-	      if (LARCH_opts.relax && ip->macro_id
++
++	      /* Only one register macros (used in normal code model)
++		 emit R_LARCH_RELAX.  */
++	      if (LARCH_opts.relax && (ip->expand_from_macro & 1)
+ 		    && (BFD_RELOC_LARCH_PCALA_HI20 == reloc_type
+ 			|| BFD_RELOC_LARCH_PCALA_LO12 == reloc_type
+ 			|| BFD_RELOC_LARCH_GOT_PC_HI20 == reloc_type
+@@ -754,7 +767,9 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+       imm = (intptr_t) str_hash_find (r_deprecated_htab, arg);
+       ip->match_now = 0 < imm;
+       ret = imm - 1;
+-      if (ip->match_now && !ip->macro_id)
++      /* !ip->expand_from_macro: avoiding duplicate output warnings,
++	 only the first macro output warning.  */
++      if (ip->match_now && !ip->expand_from_macro)
+ 	as_warn (_("register alias %s is deprecated, use %s instead"),
+ 		 arg, r_abi_names[ret]);
+       break;
+@@ -773,7 +788,7 @@ loongarch_args_parser_can_match_arg_helper (char esc_ch1, char esc_ch2,
+ 	}
+       ip->match_now = 0 < imm;
+       ret = imm - 1;
+-      if (ip->match_now && !ip->macro_id)
++      if (ip->match_now && !ip->expand_from_macro)
+ 	break;
+       /* Handle potential usage of deprecated register aliases.  */
+       imm = (intptr_t) str_hash_find (f_deprecated_htab, arg);
+@@ -1172,7 +1187,7 @@ assember_macro_helper (const char *const args[], void *context_ptr)
+  * assuming 'not starting with space and not ending with space' or pass in
+  * empty c_str.  */
+ static void
+-loongarch_assemble_INSNs (char *str, struct loongarch_cl_insn *ctx)
++loongarch_assemble_INSNs (char *str, unsigned int expand_from_macro)
+ {
+   char *rest;
+   size_t len_str = strlen(str);
+@@ -1195,7 +1210,7 @@ loongarch_assemble_INSNs (char *str, struct loongarch_cl_insn *ctx)
+ 
+       struct loongarch_cl_insn the_one = { 0 };
+       the_one.name = str;
+-      the_one.macro_id = ctx->macro_id;
++      the_one.expand_from_macro = expand_from_macro;
+ 
+       for (; *str && *str != ' '; str++)
+ 	;
+@@ -1217,29 +1232,37 @@ loongarch_assemble_INSNs (char *str, struct loongarch_cl_insn *ctx)
+ 	break;
+ 
+       append_fixp_and_insn (&the_one);
++
++      /* Expanding macro instructions.  */
+       if (the_one.insn_length == 0 && the_one.insn->macro)
+ 	{
+-	  the_one.macro_id = 1;
++	  unsigned int new_expand_from_macro = 0;
++	  if (2 == the_one.arg_num)
++	    new_expand_from_macro |= 1;
++	  else if (3 == the_one.arg_num)
++	    new_expand_from_macro |= 2;
+ 
+ 	  char *c_str = loongarch_expand_macro (the_one.insn->macro,
+ 						the_one.arg_strs,
+ 						assember_macro_helper,
+ 						&the_one, len_str);
+-	  loongarch_assemble_INSNs (c_str, &the_one);
++	  /* The first instruction expanded from macro.  */
++	  loongarch_assemble_INSNs (c_str, new_expand_from_macro);
+ 	  free (c_str);
+ 	}
+     }
+   while (0);
+ 
++  /* The rest instructions expanded from macro, split by semicolon(;),
++     assembly one by one.  */
+   if (*rest != '\0')
+-    loongarch_assemble_INSNs (rest, ctx);
++    loongarch_assemble_INSNs (rest, expand_from_macro);
+ }
+ 
+ void
+ md_assemble (char *str)
+ {
+-  struct loongarch_cl_insn the_one = { 0 };
+-  loongarch_assemble_INSNs (str, &the_one);
++  loongarch_assemble_INSNs (str, 0);
+ }
+ 
+ const char *
+diff --git a/gas/testsuite/gas/loongarch/macro_op_extreme_pc.d b/gas/testsuite/gas/loongarch/macro_op_extreme_pc.d
+index 8e4b6e6c..68fbb338 100644
+--- a/gas/testsuite/gas/loongarch/macro_op_extreme_pc.d
++++ b/gas/testsuite/gas/loongarch/macro_op_extreme_pc.d
+@@ -2,87 +2,76 @@
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-.*:     file format .*
++.*:[    ]+file format .*
++
+ 
+ Disassembly of section .text:
+ 
+-0+ <.L1>:
+-   0:	1a000004 	pcalau12i   	\$a0, 0
+-			0: R_LARCH_PCALA_HI20	.L1
+-			0: R_LARCH_RELAX	\*ABS\*
+-   4:	02c00005 	li.d        	\$a1, 0
+-			4: R_LARCH_PCALA_LO12	.L1
+-			4: R_LARCH_RELAX	\*ABS\*
+-   8:	16000005 	lu32i.d     	\$a1, 0
+-			8: R_LARCH_PCALA64_LO20	.L1
+-   c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			c: R_LARCH_PCALA64_HI12	.L1
+-  10:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  14:	1a000004 	pcalau12i   	\$a0, 0
+-			14: R_LARCH_PCALA_HI20	.L1
+-			14: R_LARCH_RELAX	\*ABS\*
+-  18:	02c00005 	li.d        	\$a1, 0
+-			18: R_LARCH_PCALA_LO12	.L1
+-			18: R_LARCH_RELAX	\*ABS\*
+-  1c:	16000005 	lu32i.d     	\$a1, 0
+-			1c: R_LARCH_PCALA64_LO20	.L1
+-  20:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			20: R_LARCH_PCALA64_HI12	.L1
+-  24:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  28:	1a000004 	pcalau12i   	\$a0, 0
+-			28: R_LARCH_PCALA_HI20	.L1
+-			28: R_LARCH_RELAX	\*ABS\*
+-  2c:	02c00005 	li.d        	\$a1, 0
+-			2c: R_LARCH_PCALA_LO12	.L1
+-			2c: R_LARCH_RELAX	\*ABS\*
+-  30:	16000005 	lu32i.d     	\$a1, 0
+-			30: R_LARCH_PCALA64_LO20	.L1
+-  34:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			34: R_LARCH_PCALA64_HI12	.L1
+-  38:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  3c:	1a000004 	pcalau12i   	\$a0, 0
+-			3c: R_LARCH_GOT_PC_HI20	.L1
+-			3c: R_LARCH_RELAX	\*ABS\*
+-  40:	02c00005 	li.d        	\$a1, 0
+-			40: R_LARCH_GOT_PC_LO12	.L1
+-			40: R_LARCH_RELAX	\*ABS\*
+-  44:	16000005 	lu32i.d     	\$a1, 0
+-			44: R_LARCH_GOT64_PC_LO20	.L1
+-  48:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			48: R_LARCH_GOT64_PC_HI12	.L1
+-  4c:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  50:	14000004 	lu12i.w     	\$a0, 0
+-			50: R_LARCH_TLS_LE_HI20	TLS1
+-  54:	03800084 	ori         	\$a0, \$a0, 0x0
+-			54: R_LARCH_TLS_LE_LO12	TLS1
+-  58:	1a000004 	pcalau12i   	\$a0, 0
+-			58: R_LARCH_TLS_IE_PC_HI20	TLS1
+-  5c:	02c00005 	li.d        	\$a1, 0
+-			5c: R_LARCH_TLS_IE_PC_LO12	TLS1
+-  60:	16000005 	lu32i.d     	\$a1, 0
+-			60: R_LARCH_TLS_IE64_PC_LO20	TLS1
+-  64:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			64: R_LARCH_TLS_IE64_PC_HI12	TLS1
+-  68:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  6c:	1a000004 	pcalau12i   	\$a0, 0
+-			6c: R_LARCH_TLS_LD_PC_HI20	TLS1
+-			6c: R_LARCH_RELAX	\*ABS\*
+-  70:	02c00005 	li.d        	\$a1, 0
+-			70: R_LARCH_GOT_PC_LO12	TLS1
+-			70: R_LARCH_RELAX	\*ABS\*
+-  74:	16000005 	lu32i.d     	\$a1, 0
+-			74: R_LARCH_GOT64_PC_LO20	TLS1
+-  78:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			78: R_LARCH_GOT64_PC_HI12	TLS1
+-  7c:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  80:	1a000004 	pcalau12i   	\$a0, 0
+-			80: R_LARCH_TLS_GD_PC_HI20	TLS1
+-			80: R_LARCH_RELAX	\*ABS\*
+-  84:	02c00005 	li.d        	\$a1, 0
+-			84: R_LARCH_GOT_PC_LO12	TLS1
+-			84: R_LARCH_RELAX	\*ABS\*
+-  88:	16000005 	lu32i.d     	\$a1, 0
+-			88: R_LARCH_GOT64_PC_LO20	TLS1
+-  8c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			8c: R_LARCH_GOT64_PC_HI12	TLS1
+-  90:	00109484 	add.d       	\$a0, \$a0, \$a1
++[ 	]*0000000000000000 <.L1>:
++[ 	]+0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+0: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+4:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+4: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+8:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+8: R_LARCH_PCALA64_LO20[ 	]+.L1
++[ 	]+c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+c: R_LARCH_PCALA64_HI12[ 	]+.L1
++[ 	]+10:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+14:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+14: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+18:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+18: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+1c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+1c: R_LARCH_PCALA64_LO20[ 	]+.L1
++[ 	]+20:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+20: R_LARCH_PCALA64_HI12[ 	]+.L1
++[ 	]+24:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+28:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+28: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+2c:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+2c: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+30:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+30: R_LARCH_PCALA64_LO20[ 	]+.L1
++[ 	]+34:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+34: R_LARCH_PCALA64_HI12[ 	]+.L1
++[ 	]+38:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+3c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+3c: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+40:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+40: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+44:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+44: R_LARCH_GOT64_PC_LO20[ 	]+.L1
++[ 	]+48:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+48: R_LARCH_GOT64_PC_HI12[ 	]+.L1
++[ 	]+4c:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+50:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+50: R_LARCH_TLS_LE_HI20[ 	]+TLS1
++[ 	]+54:[ 	]+03800084[ 	]+ori[ 	]+\$a0, \$a0, 0x0
++[ 	]+54: R_LARCH_TLS_LE_LO12[ 	]+TLS1
++[ 	]+58:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+58: R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
++[ 	]+5c:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+5c: R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
++[ 	]+60:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+60: R_LARCH_TLS_IE64_PC_LO20[ 	]+TLS1
++[ 	]+64:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+64: R_LARCH_TLS_IE64_PC_HI12[ 	]+TLS1
++[ 	]+68:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+6c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+6c: R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
++[ 	]+70:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+70: R_LARCH_GOT_PC_LO12[ 	]+TLS1
++[ 	]+74:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+74: R_LARCH_GOT64_PC_LO20[ 	]+TLS1
++[ 	]+78:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+78: R_LARCH_GOT64_PC_HI12[ 	]+TLS1
++[ 	]+7c:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+80:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+80: R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
++[ 	]+84:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+84: R_LARCH_GOT_PC_LO12[ 	]+TLS1
++[ 	]+88:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+88: R_LARCH_GOT64_PC_LO20[ 	]+TLS1
++[ 	]+8c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+8c: R_LARCH_GOT64_PC_HI12[ 	]+TLS1
++[ 	]+90:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
+diff --git a/gas/testsuite/gas/loongarch/tlsdesc_large_pc.d b/gas/testsuite/gas/loongarch/tlsdesc_large_pc.d
+index 2b7a4660..a7fcce31 100644
+--- a/gas/testsuite/gas/loongarch/tlsdesc_large_pc.d
++++ b/gas/testsuite/gas/loongarch/tlsdesc_large_pc.d
+@@ -2,37 +2,35 @@
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-.*:     file format .*
++.*:[    ]+file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-0+ <.*>:
+-   0:	1a000004 	pcalau12i   	\$a0, 0
+-			0: R_LARCH_TLS_DESC_PC_HI20	var
+-   4:	02c00005 	li.d        	\$a1, 0
+-			4: R_LARCH_TLS_DESC_PC_LO12	var
+-   8:	16000005 	lu32i.d     	\$a1, 0
+-			8: R_LARCH_TLS_DESC64_PC_LO20	var
+-   c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			c: R_LARCH_TLS_DESC64_PC_HI12	var
+-  10:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  14:	28c00081 	ld.d        	\$ra, \$a0, 0
+-			14: R_LARCH_TLS_DESC_LD	var
+-  18:	4c000021 	jirl        	\$ra, \$ra, 0
+-			18: R_LARCH_TLS_DESC_CALL	var
+-  1c:	1a000004 	pcalau12i   	\$a0, 0
+-			1c: R_LARCH_TLS_DESC_PC_HI20	var
+-			1c: R_LARCH_RELAX	\*ABS\*
+-  20:	02c00001 	li.d        	\$ra, 0
+-			20: R_LARCH_TLS_DESC_PC_LO12	var
+-			20: R_LARCH_RELAX	\*ABS\*
+-  24:	16000001 	lu32i.d     	\$ra, 0
+-			24: R_LARCH_TLS_DESC64_PC_LO20	var
+-  28:	03000021 	lu52i.d     	\$ra, \$ra, 0
+-			28: R_LARCH_TLS_DESC64_PC_HI12	var
+-  2c:	00108484 	add.d       	\$a0, \$a0, \$ra
+-  30:	28c00081 	ld.d        	\$ra, \$a0, 0
+-			30: R_LARCH_TLS_DESC_LD	var
+-  34:	4c000021 	jirl        	\$ra, \$ra, 0
+-			34: R_LARCH_TLS_DESC_CALL	var
++[ 	]*0000000000000000 <.text>:
++[ 	]+0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+0: R_LARCH_TLS_DESC_PC_HI20[ 	]+var
++[ 	]+4:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+4: R_LARCH_TLS_DESC_PC_LO12[ 	]+var
++[ 	]+8:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+8: R_LARCH_TLS_DESC64_PC_LO20[ 	]+var
++[ 	]+c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+c: R_LARCH_TLS_DESC64_PC_HI12[ 	]+var
++[ 	]+10:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+14:[ 	]+28c00081[ 	]+ld.d[ 	]+\$ra, \$a0, 0
++[ 	]+14: R_LARCH_TLS_DESC_LD[ 	]+var
++[ 	]+18:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
++[ 	]+18: R_LARCH_TLS_DESC_CALL[ 	]+var
++[ 	]+1c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+1c: R_LARCH_TLS_DESC_PC_HI20[ 	]+var
++[ 	]+20:[ 	]+02c00001[ 	]+li.d[ 	]+\$ra, 0
++[ 	]+20: R_LARCH_TLS_DESC_PC_LO12[ 	]+var
++[ 	]+24:[ 	]+16000001[ 	]+lu32i.d[ 	]+\$ra, 0
++[ 	]+24: R_LARCH_TLS_DESC64_PC_LO20[ 	]+var
++[ 	]+28:[ 	]+03000021[ 	]+lu52i.d[ 	]+\$ra, \$ra, 0
++[ 	]+28: R_LARCH_TLS_DESC64_PC_HI12[ 	]+var
++[ 	]+2c:[ 	]+00108484[ 	]+add.d[ 	]+\$a0, \$a0, \$ra
++[ 	]+30:[ 	]+28c00081[ 	]+ld.d[ 	]+\$ra, \$a0, 0
++[ 	]+30: R_LARCH_TLS_DESC_LD[ 	]+var
++[ 	]+34:[ 	]+4c000021[ 	]+jirl[ 	]+\$ra, \$ra, 0
++[ 	]+34: R_LARCH_TLS_DESC_CALL[ 	]+var
+diff --git a/ld/testsuite/ld-loongarch-elf/macro_op.d b/ld/testsuite/ld-loongarch-elf/macro_op.d
+index f0d87c03..c9493918 100644
+--- a/ld/testsuite/ld-loongarch-elf/macro_op.d
++++ b/ld/testsuite/ld-loongarch-elf/macro_op.d
+@@ -2,204 +2,186 @@
+ #objdump: -dr
+ #skip: loongarch32-*-*
+ 
+-.*:     file format .*
++.*:[    ]+file format .*
+ 
+ 
+ Disassembly of section .text:
+ 
+-0+ <.L1>:
+-   0:	00150004 	move        	\$a0, \$zero
+-   4:	02bffc04 	li.w        	\$a0, -1
+-   8:	00150004 	move        	\$a0, \$zero
+-   c:	02bffc04 	li.w        	\$a0, -1
+-  10:	1a000004 	pcalau12i   	\$a0, 0
+-			10: R_LARCH_GOT_PC_HI20	.L1
+-			10: R_LARCH_RELAX	\*ABS\*
+-  14:	28c00084 	ld.d        	\$a0, \$a0, 0
+-			14: R_LARCH_GOT_PC_LO12	.L1
+-			14: R_LARCH_RELAX	\*ABS\*
+-  18:	1a000004 	pcalau12i   	\$a0, 0
+-			18: R_LARCH_GOT_PC_HI20	.L1
+-			18: R_LARCH_RELAX	\*ABS\*
+-  1c:	28c00084 	ld.d        	\$a0, \$a0, 0
+-			1c: R_LARCH_GOT_PC_LO12	.L1
+-			1c: R_LARCH_RELAX	\*ABS\*
+-  20:	1a000004 	pcalau12i   	\$a0, 0
+-			20: R_LARCH_GOT_PC_HI20	.L1
+-			20: R_LARCH_RELAX	\*ABS\*
+-  24:	02c00005 	li.d        	\$a1, 0
+-			24: R_LARCH_GOT_PC_LO12	.L1
+-			24: R_LARCH_RELAX	\*ABS\*
+-  28:	16000005 	lu32i.d     	\$a1, 0
+-			28: R_LARCH_GOT64_PC_LO20	.L1
+-  2c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			2c: R_LARCH_GOT64_PC_HI12	.L1
+-  30:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  34:	1a000004 	pcalau12i   	\$a0, 0
+-			34: R_LARCH_GOT_PC_HI20	.L1
+-			34: R_LARCH_RELAX	\*ABS\*
+-  38:	28c00084 	ld.d        	\$a0, \$a0, 0
+-			38: R_LARCH_GOT_PC_LO12	.L1
+-			38: R_LARCH_RELAX	\*ABS\*
+-  3c:	1a000004 	pcalau12i   	\$a0, 0
+-			3c: R_LARCH_GOT_PC_HI20	.L1
+-			3c: R_LARCH_RELAX	\*ABS\*
+-  40:	02c00005 	li.d        	\$a1, 0
+-			40: R_LARCH_GOT_PC_LO12	.L1
+-			40: R_LARCH_RELAX	\*ABS\*
+-  44:	16000005 	lu32i.d     	\$a1, 0
+-			44: R_LARCH_GOT64_PC_LO20	.L1
+-  48:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			48: R_LARCH_GOT64_PC_HI12	.L1
+-  4c:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  50:	1a000004 	pcalau12i   	\$a0, 0
+-			50: R_LARCH_GOT_PC_HI20	.L1
+-			50: R_LARCH_RELAX	\*ABS\*
+-  54:	28c00084 	ld.d        	\$a0, \$a0, 0
+-			54: R_LARCH_GOT_PC_LO12	.L1
+-			54: R_LARCH_RELAX	\*ABS\*
+-  58:	1a000004 	pcalau12i   	\$a0, 0
+-			58: R_LARCH_GOT_PC_HI20	.L1
+-			58: R_LARCH_RELAX	\*ABS\*
+-  5c:	02c00005 	li.d        	\$a1, 0
+-			5c: R_LARCH_GOT_PC_LO12	.L1
+-			5c: R_LARCH_RELAX	\*ABS\*
+-  60:	16000005 	lu32i.d     	\$a1, 0
+-			60: R_LARCH_GOT64_PC_LO20	.L1
+-  64:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			64: R_LARCH_GOT64_PC_HI12	.L1
+-  68:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  6c:	1a000004 	pcalau12i   	\$a0, 0
+-			6c: R_LARCH_PCALA_HI20	.L1
+-			6c: R_LARCH_RELAX	\*ABS\*
+-  70:	02c00084 	addi.d      	\$a0, \$a0, 0
+-			70: R_LARCH_PCALA_LO12	.L1
+-			70: R_LARCH_RELAX	\*ABS\*
+-  74:	1a000004 	pcalau12i   	\$a0, 0
+-			74: R_LARCH_PCALA_HI20	.L1
+-			74: R_LARCH_RELAX	\*ABS\*
+-  78:	02c00005 	li.d        	\$a1, 0
+-			78: R_LARCH_PCALA_LO12	.L1
+-			78: R_LARCH_RELAX	\*ABS\*
+-  7c:	16000005 	lu32i.d     	\$a1, 0
+-			7c: R_LARCH_PCALA64_LO20	.L1
+-  80:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			80: R_LARCH_PCALA64_HI12	.L1
+-  84:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  88:	1a000004 	pcalau12i   	\$a0, 0
+-			88: R_LARCH_PCALA_HI20	.L1
+-			88: R_LARCH_RELAX	\*ABS\*
+-  8c:	02c00084 	addi.d      	\$a0, \$a0, 0
+-			8c: R_LARCH_PCALA_LO12	.L1
+-			8c: R_LARCH_RELAX	\*ABS\*
+-  90:	1a000004 	pcalau12i   	\$a0, 0
+-			90: R_LARCH_PCALA_HI20	.L1
+-			90: R_LARCH_RELAX	\*ABS\*
+-  94:	02c00005 	li.d        	\$a1, 0
+-			94: R_LARCH_PCALA_LO12	.L1
+-			94: R_LARCH_RELAX	\*ABS\*
+-  98:	16000005 	lu32i.d     	\$a1, 0
+-			98: R_LARCH_PCALA64_LO20	.L1
+-  9c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			9c: R_LARCH_PCALA64_HI12	.L1
+-  a0:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  a4:	14000004 	lu12i.w     	\$a0, 0
+-			a4: R_LARCH_MARK_LA	\*ABS\*
+-			a4: R_LARCH_ABS_HI20	.L1
+-  a8:	03800084 	ori         	\$a0, \$a0, 0x0
+-			a8: R_LARCH_ABS_LO12	.L1
+-  ac:	16000004 	lu32i.d     	\$a0, 0
+-			ac: R_LARCH_ABS64_LO20	.L1
+-  b0:	03000084 	lu52i.d     	\$a0, \$a0, 0
+-			b0: R_LARCH_ABS64_HI12	.L1
+-  b4:	1a000004 	pcalau12i   	\$a0, 0
+-			b4: R_LARCH_PCALA_HI20	.L1
+-			b4: R_LARCH_RELAX	\*ABS\*
+-  b8:	02c00084 	addi.d      	\$a0, \$a0, 0
+-			b8: R_LARCH_PCALA_LO12	.L1
+-			b8: R_LARCH_RELAX	\*ABS\*
+-  bc:	1a000004 	pcalau12i   	\$a0, 0
+-			bc: R_LARCH_PCALA_HI20	.L1
+-			bc: R_LARCH_RELAX	\*ABS\*
+-  c0:	02c00084 	addi.d      	\$a0, \$a0, 0
+-			c0: R_LARCH_PCALA_LO12	.L1
+-			c0: R_LARCH_RELAX	\*ABS\*
+-  c4:	1a000004 	pcalau12i   	\$a0, 0
+-			c4: R_LARCH_PCALA_HI20	.L1
+-			c4: R_LARCH_RELAX	\*ABS\*
+-  c8:	02c00005 	li.d        	\$a1, 0
+-			c8: R_LARCH_PCALA_LO12	.L1
+-			c8: R_LARCH_RELAX	\*ABS\*
+-  cc:	16000005 	lu32i.d     	\$a1, 0
+-			cc: R_LARCH_PCALA64_LO20	.L1
+-  d0:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			d0: R_LARCH_PCALA64_HI12	.L1
+-  d4:	00109484 	add.d       	\$a0, \$a0, \$a1
+-  d8:	1a000004 	pcalau12i   	\$a0, 0
+-			d8: R_LARCH_GOT_PC_HI20	.L1
+-			d8: R_LARCH_RELAX	\*ABS\*
+-  dc:	28c00084 	ld.d        	\$a0, \$a0, 0
+-			dc: R_LARCH_GOT_PC_LO12	.L1
+-			dc: R_LARCH_RELAX	\*ABS\*
+-  e0:	1a000004 	pcalau12i   	\$a0, 0
+-			e0: R_LARCH_GOT_PC_HI20	.L1
+-			e0: R_LARCH_RELAX	\*ABS\*
+-  e4:	02c00005 	li.d        	\$a1, 0
+-			e4: R_LARCH_GOT_PC_LO12	.L1
+-			e4: R_LARCH_RELAX	\*ABS\*
+-  e8:	16000005 	lu32i.d     	\$a1, 0
+-			e8: R_LARCH_GOT64_PC_LO20	.L1
+-  ec:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			ec: R_LARCH_GOT64_PC_HI12	.L1
+-  f0:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+-  f4:	14000004 	lu12i.w     	\$a0, 0
+-			f4: R_LARCH_TLS_LE_HI20	TLS1
+-  f8:	03800084 	ori         	\$a0, \$a0, 0x0
+-			f8: R_LARCH_TLS_LE_LO12	TLS1
+-  fc:	1a000004 	pcalau12i   	\$a0, 0
+-			fc: R_LARCH_TLS_IE_PC_HI20	TLS1
+- 100:	28c00084 	ld.d        	\$a0, \$a0, 0
+-			100: R_LARCH_TLS_IE_PC_LO12	TLS1
+- 104:	1a000004 	pcalau12i   	\$a0, 0
+-			104: R_LARCH_TLS_IE_PC_HI20	TLS1
+- 108:	02c00005 	li.d        	\$a1, 0
+-			108: R_LARCH_TLS_IE_PC_LO12	TLS1
+- 10c:	16000005 	lu32i.d     	\$a1, 0
+-			10c: R_LARCH_TLS_IE64_PC_LO20	TLS1
+- 110:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			110: R_LARCH_TLS_IE64_PC_HI12	TLS1
+- 114:	380c1484 	ldx.d       	\$a0, \$a0, \$a1
+- 118:	1a000004 	pcalau12i   	\$a0, 0
+-			118: R_LARCH_TLS_LD_PC_HI20	TLS1
+-			118: R_LARCH_RELAX	\*ABS\*
+- 11c:	02c00084 	addi.d      	\$a0, \$a0, 0
+-			11c: R_LARCH_GOT_PC_LO12	TLS1
+-			11c: R_LARCH_RELAX	\*ABS\*
+- 120:	1a000004 	pcalau12i   	\$a0, 0
+-			120: R_LARCH_TLS_LD_PC_HI20	TLS1
+-			120: R_LARCH_RELAX	\*ABS\*
+- 124:	02c00005 	li.d        	\$a1, 0
+-			124: R_LARCH_GOT_PC_LO12	TLS1
+-			124: R_LARCH_RELAX	\*ABS\*
+- 128:	16000005 	lu32i.d     	\$a1, 0
+-			128: R_LARCH_GOT64_PC_LO20	TLS1
+- 12c:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			12c: R_LARCH_GOT64_PC_HI12	TLS1
+- 130:	00109484 	add.d       	\$a0, \$a0, \$a1
+- 134:	1a000004 	pcalau12i   	\$a0, 0
+-			134: R_LARCH_TLS_GD_PC_HI20	TLS1
+-			134: R_LARCH_RELAX	\*ABS\*
+- 138:	02c00084 	addi.d      	\$a0, \$a0, 0
+-			138: R_LARCH_GOT_PC_LO12	TLS1
+-			138: R_LARCH_RELAX	\*ABS\*
+- 13c:	1a000004 	pcalau12i   	\$a0, 0
+-			13c: R_LARCH_TLS_GD_PC_HI20	TLS1
+-			13c: R_LARCH_RELAX	\*ABS\*
+- 140:	02c00005 	li.d        	\$a1, 0
+-			140: R_LARCH_GOT_PC_LO12	TLS1
+-			140: R_LARCH_RELAX	\*ABS\*
+- 144:	16000005 	lu32i.d     	\$a1, 0
+-			144: R_LARCH_GOT64_PC_LO20	TLS1
+- 148:	030000a5 	lu52i.d     	\$a1, \$a1, 0
+-			148: R_LARCH_GOT64_PC_HI12	TLS1
+- 14c:	00109484 	add.d       	\$a0, \$a0, \$a1
++[ 	]*0000000000000000 <.L1>:
++[ 	]+0:[ 	]+00150004[ 	]+move[ 	]+\$a0, \$zero
++[ 	]+4:[ 	]+02bffc04[ 	]+li.w[ 	]+\$a0, -1
++[ 	]+8:[ 	]+00150004[ 	]+move[ 	]+\$a0, \$zero
++[ 	]+c:[ 	]+02bffc04[ 	]+li.w[ 	]+\$a0, -1
++[ 	]+10:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+10: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+10: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+14:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0, \$a0, 0
++[ 	]+14: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+14: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+18:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+18: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+18: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+1c:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0, \$a0, 0
++[ 	]+1c: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+1c: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+20:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+20: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+24:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+24: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+28:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+28: R_LARCH_GOT64_PC_LO20[ 	]+.L1
++[ 	]+2c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+2c: R_LARCH_GOT64_PC_HI12[ 	]+.L1
++[ 	]+30:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+34:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+34: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+34: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+38:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0, \$a0, 0
++[ 	]+38: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+38: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+3c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+3c: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+40:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+40: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+44:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+44: R_LARCH_GOT64_PC_LO20[ 	]+.L1
++[ 	]+48:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+48: R_LARCH_GOT64_PC_HI12[ 	]+.L1
++[ 	]+4c:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+50:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+50: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+50: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+54:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0, \$a0, 0
++[ 	]+54: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+54: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+58:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+58: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+5c:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+5c: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+60:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+60: R_LARCH_GOT64_PC_LO20[ 	]+.L1
++[ 	]+64:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+64: R_LARCH_GOT64_PC_HI12[ 	]+.L1
++[ 	]+68:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+6c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+6c: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+6c: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+70:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+70: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+70: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+74:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+74: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+78:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+78: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+7c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+7c: R_LARCH_PCALA64_LO20[ 	]+.L1
++[ 	]+80:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+80: R_LARCH_PCALA64_HI12[ 	]+.L1
++[ 	]+84:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+88:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+88: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+88: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+8c:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+8c: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+8c: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+90:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+90: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+94:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+94: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+98:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+98: R_LARCH_PCALA64_LO20[ 	]+.L1
++[ 	]+9c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+9c: R_LARCH_PCALA64_HI12[ 	]+.L1
++[ 	]+a0:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+a4:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+a4: R_LARCH_MARK_LA[ 	]+\*ABS\*
++[ 	]+a4: R_LARCH_ABS_HI20[ 	]+.L1
++[ 	]+a8:[ 	]+03800084[ 	]+ori[ 	]+\$a0, \$a0, 0x0
++[ 	]+a8: R_LARCH_ABS_LO12[ 	]+.L1
++[ 	]+ac:[ 	]+16000004[ 	]+lu32i.d[ 	]+\$a0, 0
++[ 	]+ac: R_LARCH_ABS64_LO20[ 	]+.L1
++[ 	]+b0:[ 	]+03000084[ 	]+lu52i.d[ 	]+\$a0, \$a0, 0
++[ 	]+b0: R_LARCH_ABS64_HI12[ 	]+.L1
++[ 	]+b4:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+b4: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+b4: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+b8:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+b8: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+b8: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+bc:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+bc: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+bc: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+c0:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+c0: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+c0: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+c4:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+c4: R_LARCH_PCALA_HI20[ 	]+.L1
++[ 	]+c8:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+c8: R_LARCH_PCALA_LO12[ 	]+.L1
++[ 	]+cc:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+cc: R_LARCH_PCALA64_LO20[ 	]+.L1
++[ 	]+d0:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+d0: R_LARCH_PCALA64_HI12[ 	]+.L1
++[ 	]+d4:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+d8:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+d8: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+d8: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+dc:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0, \$a0, 0
++[ 	]+dc: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+dc: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+e0:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+e0: R_LARCH_GOT_PC_HI20[ 	]+.L1
++[ 	]+e4:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+e4: R_LARCH_GOT_PC_LO12[ 	]+.L1
++[ 	]+e8:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+e8: R_LARCH_GOT64_PC_LO20[ 	]+.L1
++[ 	]+ec:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+ec: R_LARCH_GOT64_PC_HI12[ 	]+.L1
++[ 	]+f0:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+f4:[ 	]+14000004[ 	]+lu12i.w[ 	]+\$a0, 0
++[ 	]+f4: R_LARCH_TLS_LE_HI20[ 	]+TLS1
++[ 	]+f8:[ 	]+03800084[ 	]+ori[ 	]+\$a0, \$a0, 0x0
++[ 	]+f8: R_LARCH_TLS_LE_LO12[ 	]+TLS1
++[ 	]+fc:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+fc: R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
++[ 	]+100:[ 	]+28c00084[ 	]+ld.d[ 	]+\$a0, \$a0, 0
++[ 	]+100: R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
++[ 	]+104:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+104: R_LARCH_TLS_IE_PC_HI20[ 	]+TLS1
++[ 	]+108:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+108: R_LARCH_TLS_IE_PC_LO12[ 	]+TLS1
++[ 	]+10c:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+10c: R_LARCH_TLS_IE64_PC_LO20[ 	]+TLS1
++[ 	]+110:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+110: R_LARCH_TLS_IE64_PC_HI12[ 	]+TLS1
++[ 	]+114:[ 	]+380c1484[ 	]+ldx.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+118:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+118: R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
++[ 	]+118: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+11c:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+11c: R_LARCH_GOT_PC_LO12[ 	]+TLS1
++[ 	]+11c: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+120:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+120: R_LARCH_TLS_LD_PC_HI20[ 	]+TLS1
++[ 	]+124:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+124: R_LARCH_GOT_PC_LO12[ 	]+TLS1
++[ 	]+128:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+128: R_LARCH_GOT64_PC_LO20[ 	]+TLS1
++[ 	]+12c:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+12c: R_LARCH_GOT64_PC_HI12[ 	]+TLS1
++[ 	]+130:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
++[ 	]+134:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+134: R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
++[ 	]+134: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+138:[ 	]+02c00084[ 	]+addi.d[ 	]+\$a0, \$a0, 0
++[ 	]+138: R_LARCH_GOT_PC_LO12[ 	]+TLS1
++[ 	]+138: R_LARCH_RELAX[ 	]+\*ABS\*
++[ 	]+13c:[ 	]+1a000004[ 	]+pcalau12i[ 	]+\$a0, 0
++[ 	]+13c: R_LARCH_TLS_GD_PC_HI20[ 	]+TLS1
++[ 	]+140:[ 	]+02c00005[ 	]+li.d[ 	]+\$a1, 0
++[ 	]+140: R_LARCH_GOT_PC_LO12[ 	]+TLS1
++[ 	]+144:[ 	]+16000005[ 	]+lu32i.d[ 	]+\$a1, 0
++[ 	]+144: R_LARCH_GOT64_PC_LO20[ 	]+TLS1
++[ 	]+148:[ 	]+030000a5[ 	]+lu52i.d[ 	]+\$a1, \$a1, 0
++[ 	]+148: R_LARCH_GOT64_PC_HI12[ 	]+TLS1
++[ 	]+14c:[ 	]+00109484[ 	]+add.d[ 	]+\$a0, \$a0, \$a1
+-- 
+2.33.0
+

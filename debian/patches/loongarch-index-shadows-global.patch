@@ -1,0 +1,31 @@
+From 8e018f9efeab0a04c045f6fd06d493a00a027dd9 Mon Sep 17 00:00:00 2001
+From: Alan Modra <amodra@gmail.com>
+Date: Wed, 3 Jan 2024 16:03:48 +1030
+Subject: [PATCH 040/123] loongarch: 'index' shadows global
+
+Avoid an error when compiling with older versions of gcc.
+
+	* elfnn-loongarch.c (loongarch_relax_align): Rename "index" to
+	"sym_index".
+---
+ bfd/elfnn-loongarch.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 73e4b819..3d858169 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -4302,8 +4302,8 @@ loongarch_relax_align (bfd *abfd, asection *sec,
+ {
+   bfd_vma  addend, max = 0, alignment = 1;
+ 
+-  int index = ELFNN_R_SYM (rel->r_info);
+-  if (index > 0)
++  int sym_index = ELFNN_R_SYM (rel->r_info);
++  if (sym_index > 0)
+     {
+       alignment = 1 << (rel->r_addend & 0xff);
+       max = rel->r_addend >> 8;
+-- 
+2.33.0
+

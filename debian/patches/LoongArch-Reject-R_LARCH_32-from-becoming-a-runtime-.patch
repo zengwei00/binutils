@@ -1,0 +1,132 @@
+From b1375201b1643fee97a240ba17523a529b286e12 Mon Sep 17 00:00:00 2001
+From: Xi Ruoyao <xry111@xry111.site>
+Date: Sun, 30 Jun 2024 15:18:21 +0800
+Subject: [PATCH 095/123] LoongArch: Reject R_LARCH_32 from becoming a runtime
+ reloc in ELFCLASS64
+
+We were converting R_LARCH_32 to R_LARCH_RELATIVE for ELFCLASS64:
+
+    $ cat t.s
+    .data
+    x:
+        .4byte x
+	.4byte 0xdeadbeef
+    $ as/as-new t.s -o t.o
+    $ ld/ld-new -shared t.o
+    $ objdump -R
+    a.out:     file format elf64-loongarch
+
+    DYNAMIC RELOCATION RECORDS
+    OFFSET           TYPE              VALUE
+    00000000000001a8 R_LARCH_RELATIVE  *ABS*+0x00000000000001a8
+
+But this is just wrong: at runtime the dynamic linker will run
+*(uintptr *)&x += load_address, clobbering the next 4 bytes of data
+("0xdeadbeef" in the example).
+
+If we keep the R_LARCH_32 reloc as-is in ELFCLASS64, it'll be rejected
+by the Glibc dynamic linker anyway.  And it does not make too much sense
+to modify Glibc to support it.  So we can just reject it like x86_64:
+
+    relocation R_X86_64_32 against `.data' can not be used when making a
+    shared object; recompile with -fPIC
+
+or RISC-V:
+
+    relocation R_RISCV_32 against non-absolute symbol `a local symbol'
+    can not be used in RV64 when making a shared object
+
+Signed-off-by: Xi Ruoyao <xry111@xry111.site>
+---
+ bfd/elfnn-loongarch.c                         | 30 +++++++++++++++++--
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     |  1 +
+ .../ld-loongarch-elf/r_larch_32_elf64.d       |  4 +++
+ .../ld-loongarch-elf/r_larch_32_elf64.s       |  3 ++
+ 4 files changed, 36 insertions(+), 2 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 840cdd35..fa0a5e38 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -1036,8 +1036,32 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	  only_need_pcrel = 1;
+ 	  break;
+ 
+-	case R_LARCH_JUMP_SLOT:
+ 	case R_LARCH_32:
++	  if (ARCH_SIZE > 32
++	      && bfd_link_pic (info)
++	      && (sec->flags & SEC_ALLOC) != 0)
++	    {
++	      bool is_abs_symbol = false;
++
++	      if (r_symndx < symtab_hdr->sh_info)
++		is_abs_symbol = isym->st_shndx == SHN_ABS;
++	      else
++		is_abs_symbol = bfd_is_abs_symbol (&h->root);
++
++	      if (!is_abs_symbol)
++		{
++		  _bfd_error_handler
++		    (_("%pB: relocation R_LARCH_32 against non-absolute "
++		       "symbol `%s' cannot be used in ELFCLASS64 when "
++		       "making a shared object or PIE"),
++		     abfd, h ? h->root.root.string : "a local symbol");
++		  bfd_set_error (bfd_error_bad_value);
++		  return false;
++		}
++	    }
++
++	  /* Fall through.  */
++	case R_LARCH_JUMP_SLOT:
+ 	case R_LARCH_64:
+ 
+ 	  need_dynreloc = 1;
+@@ -2858,8 +2882,10 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 		  outrel.r_addend = relocation + rel->r_addend;
+ 		}
+ 
+-	      /* No alloc space of func allocate_dynrelocs.  */
++	      /* No alloc space of func allocate_dynrelocs.
++		 No alloc space of invalid R_LARCH_32 in ELFCLASS64.  */
+ 	      if (unresolved_reloc
++		  && (ARCH_SIZE == 32 || r_type != R_LARCH_32)
+ 		  && !(h && (h->is_weakalias || !h->dyn_relocs)))
+ 		loongarch_elf_append_rela (output_bfd, sreloc, &outrel);
+ 	    }
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 89552a11..7ffabe2c 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -132,6 +132,7 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "reloc_le_with_shared"
+     run_dump_test "reloc_ler_with_shared"
+     run_dump_test "reloc_abs_with_shared"
++    run_dump_test "r_larch_32_elf64"
+   }
+ 
+   if [check_pie_support] {
+diff --git a/ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.d b/ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.d
+new file mode 100644
+index 00000000..34313295
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.d
+@@ -0,0 +1,4 @@
++#name: R_LARCH_32 in ELFCLASS64
++#source: r_larch_32_elf64.s
++#ld: -shared -melf64loongarch
++#error: R_LARCH_32 .* cannot be used in ELFCLASS64
+diff --git a/ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.s b/ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.s
+new file mode 100644
+index 00000000..6649f2bc
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/r_larch_32_elf64.s
+@@ -0,0 +1,3 @@
++.data
++x:
++	.4byte x
+-- 
+2.33.0
+

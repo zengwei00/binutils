@@ -1,0 +1,269 @@
+From 601d68c3a9866761ca19d1c27186f30de68a7af5 Mon Sep 17 00:00:00 2001
+From: Xi Ruoyao <xry111@xry111.site>
+Date: Sun, 30 Jun 2024 15:18:22 +0800
+Subject: [PATCH 096/123] LoongArch: Fix bad reloc with mixed visibility ifunc
+ symbols in shared libraries
+
+With a simple test case:
+
+    .globl  ifunc
+    .globl  ifunc_hidden
+    .hidden ifunc_hidden
+    .type   ifunc, %gnu_indirect_function
+    .type   ifunc_hidden, %gnu_indirect_function
+
+    .text
+    .align  2
+    ifunc:  ret
+    ifunc_hidden: ret
+
+    test:
+      bl ifunc
+      bl ifunc_hidden
+
+"ld -shared" produces a shared object with one R_LARCH_NONE (instead of
+R_LARCH_JUMP_SLOT as we expect) to relocate the GOT entry of "ifunc".
+It's because the indices in .plt and .rela.plt mismatches for
+STV_DEFAULT STT_IFUNC symbols when another PLT entry exists for a
+STV_HIDDEN STT_IFUNC symbol, and such a mismatch breaks the logic of
+loongarch_elf_finish_dynamic_symbol.  Fix the issue by reordering .plt
+so the indices no longer mismatch.
+
+Signed-off-by: Xi Ruoyao <xry111@xry111.site>
+---
+ bfd/elfnn-loongarch.c                         | 77 ++++++++++++++++---
+ ld/testsuite/ld-loongarch-elf/ifunc-reloc.d   | 19 +++++
+ ld/testsuite/ld-loongarch-elf/ifunc-reloc.s   | 55 +++++++++++++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     |  1 +
+ 4 files changed, 140 insertions(+), 12 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/ifunc-reloc.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/ifunc-reloc.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index fa0a5e38..6b1a4ecc 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -1716,9 +1716,10 @@ local_allocate_ifunc_dyn_relocs (struct bfd_link_info *info,
+    ifunc dynamic relocs.  */
+ 
+ static bool
+-elfNN_allocate_ifunc_dynrelocs (struct elf_link_hash_entry *h, void *inf)
++elfNN_allocate_ifunc_dynrelocs (struct elf_link_hash_entry *h,
++				struct bfd_link_info *info,
++				bool ref_local)
+ {
+-  struct bfd_link_info *info;
+   /* An example of a bfd_link_hash_indirect symbol is versioned
+      symbol. For example: __gxx_personality_v0(bfd_link_hash_indirect)
+      -> __gxx_personality_v0(bfd_link_hash_defined)
+@@ -1734,20 +1735,18 @@ elfNN_allocate_ifunc_dynrelocs (struct elf_link_hash_entry *h, void *inf)
+   if (h->root.type == bfd_link_hash_warning)
+     h = (struct elf_link_hash_entry *) h->root.u.i.link;
+ 
+-  info = (struct bfd_link_info *) inf;
+-
+   /* Since STT_GNU_IFUNC symbol must go through PLT, we handle it
+      here if it is defined and referenced in a non-shared object.  */
+   if (h->type == STT_GNU_IFUNC && h->def_regular)
+     {
+-      if (SYMBOL_REFERENCES_LOCAL (info, h))
++      if (ref_local && SYMBOL_REFERENCES_LOCAL (info, h))
+ 	return local_allocate_ifunc_dyn_relocs (info, h,
+ 						&h->dyn_relocs,
+ 						PLT_ENTRY_SIZE,
+ 						PLT_HEADER_SIZE,
+ 						GOT_ENTRY_SIZE,
+ 						false);
+-      else
++      else if (!ref_local && !SYMBOL_REFERENCES_LOCAL (info, h))
+ 	return _bfd_elf_allocate_ifunc_dyn_relocs (info, h,
+ 						   &h->dyn_relocs,
+ 						   PLT_ENTRY_SIZE,
+@@ -1759,6 +1758,23 @@ elfNN_allocate_ifunc_dynrelocs (struct elf_link_hash_entry *h, void *inf)
+   return true;
+ }
+ 
++static bool
++elfNN_allocate_ifunc_dynrelocs_ref_local (struct elf_link_hash_entry *h,
++					  void *info)
++{
++  return elfNN_allocate_ifunc_dynrelocs (h, (struct bfd_link_info *) info,
++					 true);
++}
++
++static bool
++elfNN_allocate_ifunc_dynrelocs_ref_global (struct elf_link_hash_entry *h,
++					   void *info)
++{
++  return elfNN_allocate_ifunc_dynrelocs (h, (struct bfd_link_info *) info,
++					 false);
++}
++
++
+ /* Allocate space in .plt, .got and associated reloc sections for
+    ifunc dynamic relocs.  */
+ 
+@@ -1774,7 +1790,7 @@ elfNN_allocate_local_ifunc_dynrelocs (void **slot, void *inf)
+       || h->root.type != bfd_link_hash_defined)
+     abort ();
+ 
+-  return elfNN_allocate_ifunc_dynrelocs (h, inf);
++  return elfNN_allocate_ifunc_dynrelocs_ref_local (h, inf);
+ }
+ 
+ /* Set DF_TEXTREL if we find any dynamic relocs that apply to
+@@ -1933,11 +1949,48 @@ loongarch_elf_size_dynamic_sections (bfd *output_bfd,
+      sym dynamic relocs.  */
+   elf_link_hash_traverse (&htab->elf, allocate_dynrelocs, info);
+ 
+-  /* Allocate global ifunc sym .plt and .got entries, and space for global
+-     ifunc sym dynamic relocs.  */
+-  elf_link_hash_traverse (&htab->elf, elfNN_allocate_ifunc_dynrelocs, info);
+-
+-  /* Allocate .plt and .got entries, and space for local ifunc symbols.  */
++  /* Allocate global ifunc sym .plt and .got entries, and space for
++     *preemptible* ifunc sym dynamic relocs.  Note that we must do it
++     for *all* preemptible ifunc (including local ifuncs and STV_HIDDEN
++     ifuncs) before doing it for any non-preemptible ifunc symbol:
++     assuming we are not so careful, when we link a shared library the
++     correlation of .plt and .rela.plt might look like:
++
++				idx in .plt	idx in .rela.plt
++	ext_func1@plt		0		0
++	ext_func2@plt		1		1
++	ext_func3@plt		2		2
++	hidden_ifunc1@plt	3		None: it's in .rela.got
++	hidden_ifunc2@plt	4		None: it's in .rela.got
++	normal_ifunc1@plt	5	!=	3
++	normal_ifunc2@plt	6	!=	4
++	local_ifunc@plt		7		None: it's in .rela.got
++
++     Now oops the indices for normal_ifunc{1,2} in .rela.plt were different
++     from the indices in .plt :(.  This would break finish_dynamic_symbol
++     which assumes the index in .rela.plt matches the index in .plt.
++
++     So let's be careful and make it correct:
++
++				idx in .plt	idx in .rela.plt
++	ext_func1@plt		0		0
++	ext_func2@plt		1		1
++	ext_func3@plt		2		2
++	normal_ifunc1@plt	3		3
++	normal_ifunc2@plt	4		4
++	hidden_ifunc1@plt	5		None: it's in .rela.got
++	hidden_ifunc2@plt	6		None: it's in .rela.got
++	local_ifunc@plt		7		None: it's in .rela.got
++
++     Now normal_ifuncs first.  */
++  elf_link_hash_traverse (&htab->elf,
++			  elfNN_allocate_ifunc_dynrelocs_ref_global, info);
++
++  /* Next hidden_ifuncs follows.  */
++  elf_link_hash_traverse (&htab->elf,
++			  elfNN_allocate_ifunc_dynrelocs_ref_local, info);
++
++  /* Finally local_ifuncs.  */
+   htab_traverse (htab->loc_hash_table,
+ 		 elfNN_allocate_local_ifunc_dynrelocs, info);
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/ifunc-reloc.d b/ld/testsuite/ld-loongarch-elf/ifunc-reloc.d
+new file mode 100644
+index 00000000..cb592874
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/ifunc-reloc.d
+@@ -0,0 +1,19 @@
++#ld: -shared
++#readelf: -Wr
++
++#...
++.*'\.rela\.dyn'.*
++#...
++.* R_LARCH_RELATIVE .*
++.* R_LARCH_IRELATIVE .*
++.* R_LARCH_IRELATIVE .*
++.* R_LARCH_IRELATIVE .*
++#...
++.*'\.rela\.plt'.*
++#...
++.* R_LARCH_JUMP_SLOT .*
++.* R_LARCH_JUMP_SLOT .*
++.* R_LARCH_JUMP_SLOT .*
++.* R_LARCH_JUMP_SLOT .*
++.* R_LARCH_JUMP_SLOT .*
++.* R_LARCH_JUMP_SLOT .*
+diff --git a/ld/testsuite/ld-loongarch-elf/ifunc-reloc.s b/ld/testsuite/ld-loongarch-elf/ifunc-reloc.s
+new file mode 100644
+index 00000000..e59f2b20
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/ifunc-reloc.s
+@@ -0,0 +1,55 @@
++.globl	foo
++.globl	foo_hidden1
++.globl	foo_hidden2
++.globl	foo_protected
++
++.type	foo, %gnu_indirect_function
++.type	foo_hidden1, %gnu_indirect_function
++.type	foo_hidden2, %gnu_indirect_function
++.type	foo_protected, %gnu_indirect_function
++.type	foo_internal, %gnu_indirect_function
++
++.hidden	foo_hidden1
++.hidden	foo_hidden2
++
++.protected	foo_protected
++
++.globl	ext_ifunc1
++.globl	ext_ifunc2
++.type	ext_ifunc1, %gnu_indirect_function
++.type	ext_ifunc2, %gnu_indirect_function
++
++.text
++.align	2
++foo:
++	ret
++
++foo_hidden1:
++	ret
++
++foo_hidden2:
++	ret
++
++foo_protected:
++	ret
++
++foo_internal:
++	ret
++
++test:
++	la.got	$a0, num
++	# The order is deliberately shuffled.
++	bl	ext_ifunc1
++	bl	foo
++	bl	foo_hidden1
++	bl	ext_func1
++	bl	foo_protected
++	bl	foo_internal
++	bl	foo_hidden2
++	bl	ext_func2
++	bl	ext_ifunc2
++
++.data
++.align	3
++num:
++	.quad	114514
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 7ffabe2c..506dac3e 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -133,6 +133,7 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "reloc_ler_with_shared"
+     run_dump_test "reloc_abs_with_shared"
+     run_dump_test "r_larch_32_elf64"
++    run_dump_test "ifunc-reloc"
+   }
+ 
+   if [check_pie_support] {
+-- 
+2.33.0
+

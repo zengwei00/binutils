@@ -1,0 +1,185 @@
+From 3aeea61a3efc9a5535a2dcb9e938782ba3a60aa6 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Tue, 19 Mar 2024 17:51:19 +0800
+Subject: [PATCH 082/123] LoongArch: Add bad static relocation check and output
+ more information to user
+
+Absolute address symbols cannot be used with -shared.
+We output more information to the user than just BFD_ASSETR.
+---
+ bfd/elfnn-loongarch.c                         | 33 +++++++++++++++++--
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     |  3 ++
+ .../ld-loongarch-elf/reloc_abs_with_shared.d  |  6 ++++
+ .../ld-loongarch-elf/reloc_abs_with_shared.s  |  9 +++++
+ .../ld-loongarch-elf/reloc_le_with_shared.d   |  6 ++++
+ .../ld-loongarch-elf/reloc_le_with_shared.s   |  8 +++++
+ .../ld-loongarch-elf/reloc_ler_with_shared.d  |  4 +++
+ .../ld-loongarch-elf/reloc_ler_with_shared.s  |  9 +++++
+ 8 files changed, 76 insertions(+), 2 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 0a7caa2a..ee708c7f 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -760,6 +760,33 @@ loongarch_tls_transition (bfd *input_bfd,
+    allocate space in the global offset table or procedure linkage
+    table.  */
+ 
++static bool
++bad_static_reloc (bfd *abfd, const Elf_Internal_Rela *rel, asection *sec,
++		  unsigned r_type, struct elf_link_hash_entry *h,
++		  Elf_Internal_Sym *isym)
++{
++  /* We propably can improve the information to tell users that they should
++     be recompile the code with -fPIC or -fPIE, just like what x86 does.  */
++  reloc_howto_type * r = loongarch_elf_rtype_to_howto (abfd, r_type);
++  const char *name = NULL;
++
++  if (h)
++    name = h->root.root.string;
++  else if (isym)
++    name = bfd_elf_string_from_elf_section (abfd,
++					    elf_symtab_hdr (abfd).sh_link,
++					    isym->st_name);
++  if (name == NULL || *name == '\0')
++    name ="<nameless>";
++
++  (*_bfd_error_handler)
++   (_("%pB:(%pA+%#lx): relocation %s against `%s` can not be used when making "
++      "a shared object; recompile with -fPIC"),
++    abfd, sec, rel->r_offset, r ? r->name : _("<unknown>"), name);
++  bfd_set_error (bfd_error_bad_value);
++  return false;
++}
++
+ static bool
+ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 			    asection *sec, const Elf_Internal_Rela *relocs)
+@@ -904,7 +931,7 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	case R_LARCH_TLS_LE_HI20_R:
+ 	case R_LARCH_SOP_PUSH_TLS_TPREL:
+ 	  if (!bfd_link_executable (info))
+-	    return false;
++	    return bad_static_reloc (abfd, rel, sec, r_type, h, isym);
+ 
+ 	  if (!loongarch_elf_record_tls_and_got_reference (abfd, info, h,
+ 							   r_symndx,
+@@ -922,6 +949,9 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 
+ 	case R_LARCH_ABS_HI20:
+ 	case R_LARCH_SOP_PUSH_ABSOLUTE:
++	  if (bfd_link_pic (info))
++	    return bad_static_reloc (abfd, rel, sec, r_type, h, isym);
++
+ 	  if (h != NULL)
+ 	    /* If this reloc is in a read-only section, we might
+ 	       need a copy reloc.  We can't check reliably at this
+@@ -3397,7 +3427,6 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+ 	case R_LARCH_ABS_LO12:
+ 	case R_LARCH_ABS64_LO20:
+ 	case R_LARCH_ABS64_HI12:
+-	  BFD_ASSERT (!is_pic);
+ 
+ 	  if (is_undefweak)
+ 	    {
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index fc7b5bfe..3c8e9195 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -134,6 +134,9 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "desc-norelax"
+     run_dump_test "desc-relax"
+     run_dump_test "data-got"
++    run_dump_test "reloc_le_with_shared"
++    run_dump_test "reloc_ler_with_shared"
++    run_dump_test "reloc_abs_with_shared"
+   }
+ 
+   if [check_pie_support] {
+diff --git a/ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.d b/ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.d
+new file mode 100644
+index 00000000..532e84fb
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.d
+@@ -0,0 +1,6 @@
++#source: reloc_abs_with_shared.s
++#as:
++#ld: -shared
++#error: .*relocation R_LARCH_ABS_HI20 against `s` can not be used when making a shared object; recompile with -fPIC
++#...
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.s b/ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.s
+new file mode 100644
+index 00000000..13341af2
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/reloc_abs_with_shared.s
+@@ -0,0 +1,9 @@
++    .text
++    .globl  s
++    .data
++    .type   s, @object
++ s:
++    .word  123
++    .text
++    lu12i.w $r4,%abs_hi20(s)
++    addi.d  $r4,$r4,%abs_lo12(s)
+diff --git a/ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.d b/ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.d
+new file mode 100644
+index 00000000..562b079a
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.d
+@@ -0,0 +1,6 @@
++#source: reloc_le_with_shared.s
++#as:
++#ld: -shared
++#error: .*relocation R_LARCH_TLS_LE_HI20 against `s` can not be used when making a shared object; recompile with -fPIC
++#...
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.s b/ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.s
+new file mode 100644
+index 00000000..c7206650
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/reloc_le_with_shared.s
+@@ -0,0 +1,8 @@
++    .text
++    .globl  s
++    .section  .tdata,"awT",@progbits
++    .type     s, @object
++ s:
++    .word  123
++    .text
++    la.tls.le $r4, s
+diff --git a/ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.d b/ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.d
+new file mode 100644
+index 00000000..7382d5b8
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.d
+@@ -0,0 +1,4 @@
++#source: reloc_ler_with_shared.s
++#as:
++#ld: -shared
++#error: .*relocation R_LARCH_TLS_LE_HI20_R against `s` can not be used when making a shared object; recompile with -fPIC
+diff --git a/ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.s b/ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.s
+new file mode 100644
+index 00000000..a9e56967
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/reloc_ler_with_shared.s
+@@ -0,0 +1,9 @@
++      .text
++      .globl  s
++      .section	.tdata,"awT",@progbits
++      .type   s, @object
++ s:
++      .word  123
++      .text
++      lu12i.w $r4,%le_hi20_r(s)
++      add.d   $r4,$r4,$r2,%le_add_r(s)
+-- 
+2.33.0
+

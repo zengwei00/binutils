@@ -1,0 +1,663 @@
+From c3d71bd5b8f0f949729025ad3338e3f93e5e0d77 Mon Sep 17 00:00:00 2001
+From: Xi Ruoyao <xry111@xry111.site>
+Date: Sun, 30 Jun 2024 15:18:25 +0800
+Subject: [PATCH 099/123] LoongArch: Add DT_RELR tests
+
+Most tests are ported from AArch64.
+
+The relr-addend test is added to make sure the addend (link-time address)
+is correctly written into the relocated section.  Doing so is not
+strictly needed for RELA, but strictly needed for RELR).
+
+Signed-off-by: Xi Ruoyao <xry111@xry111.site>
+---
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     |  10 ++
+ ld/testsuite/ld-loongarch-elf/relr-addend.d   |  11 ++
+ ld/testsuite/ld-loongarch-elf/relr-addend.s   |  17 +++
+ ld/testsuite/ld-loongarch-elf/relr-align.d    |  22 ++++
+ ld/testsuite/ld-loongarch-elf/relr-align.s    | 106 ++++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/relr-data-pie.d |  18 +++
+ .../ld-loongarch-elf/relr-data-shared.d       |  18 +++
+ ld/testsuite/ld-loongarch-elf/relr-data.s     |  71 ++++++++++++
+ .../ld-loongarch-elf/relr-discard-pie.d       |   8 ++
+ .../ld-loongarch-elf/relr-discard-shared.d    |  11 ++
+ ld/testsuite/ld-loongarch-elf/relr-discard.ld |  13 +++
+ ld/testsuite/ld-loongarch-elf/relr-discard.s  |  61 ++++++++++
+ ld/testsuite/ld-loongarch-elf/relr-got-pie.d  |  15 +++
+ .../ld-loongarch-elf/relr-got-shared.d        |  15 +++
+ ld/testsuite/ld-loongarch-elf/relr-got.s      |  27 +++++
+ ld/testsuite/ld-loongarch-elf/relr-relocs.ld  |  24 ++++
+ ld/testsuite/ld-loongarch-elf/relr-text-pie.d |  14 +++
+ .../ld-loongarch-elf/relr-text-shared.d       |  14 +++
+ ld/testsuite/ld-loongarch-elf/relr-text.s     |  10 ++
+ 19 files changed, 485 insertions(+)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-addend.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-addend.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-align.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-align.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-data-pie.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-data-shared.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-data.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-discard-pie.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-discard-shared.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-discard.ld
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-discard.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-got-pie.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-got-shared.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-got.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-relocs.ld
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-text-pie.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-text-shared.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relr-text.s
+
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 30d7bc03..2be67651 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -135,10 +135,20 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "r_larch_32_elf64"
+     run_dump_test "ifunc-reloc"
+     run_dump_test "protected-func"
++    run_dump_test "relr-addend"
++    run_dump_test "relr-align"
++    run_dump_test "relr-data-shared"
++    run_dump_test "relr-discard-shared"
++    run_dump_test "relr-got-shared"
++    run_dump_test "relr-text-shared"
+   }
+ 
+   if [check_pie_support] {
+     run_dump_test "pie_discard"
++    run_dump_test "relr-data-pie"
++    run_dump_test "relr-discard-pie"
++    run_dump_test "relr-got-pie"
++    run_dump_test "relr-text-pie"
+   }
+ 
+   run_dump_test "max_imm_b16"
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-addend.d b/ld/testsuite/ld-loongarch-elf/relr-addend.d
+new file mode 100644
+index 00000000..da13c2cf
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-addend.d
+@@ -0,0 +1,11 @@
++#ld: -shared -z pack-relative-relocs -T relr-relocs.ld
++#objdump: -s -j.got -j.data
++
++.*:     file format elf64-loongarch
++
++Contents of section \.got:
++ 20000 [0-9a-f]+ [0-9a-f]+ 00003412 00000000  .*
++ 20010 08003412 00000000                    .*
++Contents of section \.data:
++ 12340000 14451100 00000000 10989101 00000000  .*
++ 12340010 00003412 00000000 08003412 00000000  .*
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-addend.s b/ld/testsuite/ld-loongarch-elf/relr-addend.s
+new file mode 100644
+index 00000000..3d08f6ca
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-addend.s
+@@ -0,0 +1,17 @@
++.data
++.align	8
++x:
++	.quad	0x114514
++y:
++	.quad	0x1919810
++px:
++	.quad	x
++py:
++	.quad	y
++
++.text
++.align	2
++_start:
++	la.got	$a0, x
++	la.got	$a1, y
++	ret
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-align.d b/ld/testsuite/ld-loongarch-elf/relr-align.d
+new file mode 100644
+index 00000000..d534243b
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-align.d
+@@ -0,0 +1,22 @@
++#source: relr-align.s
++#ld: -shared -z pack-relative-relocs -T relr-relocs.ld
++#readelf: -rW
++
++Relocation section '\.rela.dyn' at offset 0x[0-9a-f]+ contains 3 entries:
++    Offset             Info             Type               Symbol's Value  Symbol's Name \+ Addend
++0000000012340011  0000000000000003 R_LARCH_RELATIVE                          10000
++0000000012340019  0000000000000003 R_LARCH_RELATIVE                          10000
++0000000012340041  0000000000000003 R_LARCH_RELATIVE                          10000
++
++Relocation section '\.relr.dyn' at offset 0x[0-9a-f]+ contains 9 entries which relocate 10 locations:
++Index: Entry            Address           Symbolic Address
++0000:  0000000012340000 0000000012340000  double_0
++0001:  0000000000000003 0000000012340008  double_0 \+ 0x8
++0002:  0000000012340022 0000000012340022  double_2
++0003:  0000000000000003 000000001234002a  double_2 \+ 0x8
++0004:  0000000012340038 0000000012340038  single_0
++0005:  000000001234004a 000000001234004a  single_2
++0006:  0000000012340058 0000000012340058  big
++0007:  8000000100000001 0000000012340158  big \+ 0x100
++                        0000000012340250  big \+ 0x1f8
++0008:  0000000000000003 0000000012340258  big \+ 0x200
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-align.s b/ld/testsuite/ld-loongarch-elf/relr-align.s
+new file mode 100644
+index 00000000..ddd055ab
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-align.s
+@@ -0,0 +1,106 @@
++# Test DT_RELR with differently aligned relative relocs.
++
++.text
++.global _start
++_start:
++foo:
++
++.data
++.p2align 3
++double_0:
++.quad foo
++.quad foo
++.byte 0
++double_1:
++.quad foo
++.quad foo
++.byte 0
++double_2:
++.quad foo
++.quad foo
++.byte 0
++.byte 0
++.byte 0
++.byte 0
++.byte 0
++.byte 0
++single_0:
++.quad foo
++.byte 0
++single_1:
++.quad foo
++.byte 0
++single_2:
++.quad foo
++.byte 0
++.byte 0
++.byte 0
++.byte 0
++.byte 0
++.byte 0
++big:
++.quad foo
++.quad 1
++.quad 2
++.quad 3
++.quad 4
++.quad 5
++.quad 6
++.quad 7
++.quad 8
++.quad 9
++.quad 10
++.quad 11
++.quad 12
++.quad 13
++.quad 14
++.quad 15
++.quad 16
++.quad 17
++.quad 18
++.quad 19
++.quad 20
++.quad 21
++.quad 22
++.quad 23
++.quad 24
++.quad 25
++.quad 26
++.quad 27
++.quad 28
++.quad 29
++.quad 30
++.quad 31
++.quad foo + 32
++.quad 33
++.quad 34
++.quad 35
++.quad 36
++.quad 37
++.quad 38
++.quad 39
++.quad 40
++.quad 41
++.quad 42
++.quad 43
++.quad 44
++.quad 45
++.quad 46
++.quad 47
++.quad 48
++.quad 49
++.quad 50
++.quad 51
++.quad 52
++.quad 53
++.quad 54
++.quad 55
++.quad 56
++.quad 57
++.quad 58
++.quad 59
++.quad 60
++.quad 61
++.quad 62
++.quad foo + 63
++.quad foo + 64
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-data-pie.d b/ld/testsuite/ld-loongarch-elf/relr-data-pie.d
+new file mode 100644
+index 00000000..20ef9ac1
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-data-pie.d
+@@ -0,0 +1,18 @@
++#source: relr-data.s
++#ld: -pie -z pack-relative-relocs -T relr-relocs.ld
++#readelf: -rW
++
++Relocation section '\.rela\.dyn' at offset 0x[0-9a-f]+ contains 5 entries:
++    Offset             Info             Type               Symbol's Value  Symbol's Name \+ Addend
++0000000012340000  0000000000000003 R_LARCH_RELATIVE                          10004
++0000000012340008  0000000000000003 R_LARCH_RELATIVE                          10008
++0000000012340010  0000000000000003 R_LARCH_RELATIVE                          1000c
++0000000012340018  0000000000000003 R_LARCH_RELATIVE                          12340050
++0000000012340040  0000000c00000002 R_LARCH_64             0000000000000000 sym_weak_undef \+ 0
++
++Relocation section '\.relr\.dyn' at offset 0x[0-9a-f]+ contains 2 entries which relocate 4 locations:
++Index: Entry            Address           Symbolic Address
++0000:  0000000012340020 0000000012340020  aligned_local
++0001:  0000000000000027 0000000012340028  aligned_hidden
++                        0000000012340030  aligned_global
++                        0000000012340048  aligned_DYNAMIC
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-data-shared.d b/ld/testsuite/ld-loongarch-elf/relr-data-shared.d
+new file mode 100644
+index 00000000..37e4c0da
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-data-shared.d
+@@ -0,0 +1,18 @@
++#source: relr-data.s
++#ld: -shared -z pack-relative-relocs -T relr-relocs.ld
++#readelf: -rW
++
++Relocation section '\.rela\.dyn' at offset 0x[0-9a-f]+ contains 6 entries:
++    Offset             Info             Type               Symbol's Value  Symbol's Name \+ Addend
++0000000012340000  0000000000000003 R_LARCH_RELATIVE                          10004
++0000000012340008  0000000000000003 R_LARCH_RELATIVE                          10008
++0000000012340018  0000000000000003 R_LARCH_RELATIVE                          12340050
++0000000012340010  0000000d00000002 R_LARCH_64             000000000001000c sym_global \+ 0
++0000000012340030  0000000d00000002 R_LARCH_64             000000000001000c sym_global \+ 0
++0000000012340040  0000000c00000002 R_LARCH_64             0000000000000000 sym_weak_undef \+ 0
++
++Relocation section '\.relr\.dyn' at offset 0x[0-9a-f]+ contains 2 entries which relocate 3 locations:
++Index: Entry            Address           Symbolic Address
++0000:  0000000012340020 0000000012340020  aligned_local
++0001:  0000000000000023 0000000012340028  aligned_hidden
++                        0000000012340048  aligned_DYNAMIC
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-data.s b/ld/testsuite/ld-loongarch-elf/relr-data.s
+new file mode 100644
+index 00000000..03673e0f
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-data.s
+@@ -0,0 +1,71 @@
++# Test symbol references in .data when used with DT_RELR.
++# Relocations for unaligned sections are currently not packed.
++
++.text
++.global _start
++_start:
++	nop
++
++sym_local:
++	nop
++
++.global sym_hidden
++.hidden sym_hidden
++sym_hidden:
++	nop
++
++.global sym_global
++sym_global:
++	nop
++
++.global sym_global_abs
++.set sym_global_abs, 42
++
++.global sym_weak_undef
++.weak sym_weak_undef
++
++.section .data.unaligned_local
++unaligned_local:
++.quad sym_local
++
++.section .data.unaligned_hidden
++unaligned_hidden:
++.quad sym_hidden
++
++.section .data.unaligned_global
++unaligned_global:
++.quad sym_global
++
++.section .data.unaligned_DYNAMIC
++unaligned_DYNAMIC:
++.quad _DYNAMIC
++
++.section .data.aligned_local
++.p2align 1
++aligned_local:
++.quad sym_local
++
++.section .data.aligned_hidden
++.p2align 1
++aligned_hidden:
++.quad sym_hidden
++
++.section .data.aligned_global
++.p2align 1
++aligned_global:
++.quad sym_global
++
++.section .data.aligned_global_abs
++.p2align 1
++aligned_global_abs:
++.quad sym_global_abs
++
++.section .data.aligned_weak_undef
++.p2align 1
++aligned_weak_undef:
++.quad sym_weak_undef
++
++.section .data.aligned_DYNAMIC
++.p2align 1
++aligned_DYNAMIC:
++.quad _DYNAMIC
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-discard-pie.d b/ld/testsuite/ld-loongarch-elf/relr-discard-pie.d
+new file mode 100644
+index 00000000..4ea8ae5e
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-discard-pie.d
+@@ -0,0 +1,8 @@
++#source: relr-discard.s
++#ld: -pie -z pack-relative-relocs -T relr-discard.ld
++#readelf: -rW
++
++Relocation section '\.relr\.dyn' at offset 0x[0-9a-f]+ contains 2 entries which relocate 2 locations:
++Index: Entry            Address           Symbolic Address
++0000:  0000000000020008 0000000000020008  _GLOBAL_OFFSET_TABLE_ \+ 0x8
++0001:  0000000000000003 0000000000020010  _GLOBAL_OFFSET_TABLE_ \+ 0x10
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-discard-shared.d b/ld/testsuite/ld-loongarch-elf/relr-discard-shared.d
+new file mode 100644
+index 00000000..8bfd8ba5
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-discard-shared.d
+@@ -0,0 +1,11 @@
++#source: relr-discard.s
++#ld: -shared -z pack-relative-relocs -T relr-discard.ld
++#readelf: -rW
++
++Relocation section '\.rela\.dyn' at offset 0x[0-9a-f]+ contains 1 entry:
++    Offset             Info             Type               Symbol's Value  Symbol's Name \+ Addend
++0000000000020010  0000000300000002 R_LARCH_64             000000000001000c sym_global \+ 0
++
++Relocation section '\.relr\.dyn' at offset 0x[0-9a-f]+ contains 1 entry which relocates 1 location:
++Index: Entry            Address           Symbolic Address
++0000:  0000000000020008 0000000000020008  _GLOBAL_OFFSET_TABLE_ \+ 0x8
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-discard.ld b/ld/testsuite/ld-loongarch-elf/relr-discard.ld
+new file mode 100644
+index 00000000..165f1ed2
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-discard.ld
+@@ -0,0 +1,13 @@
++OUTPUT_ARCH(loongarch64)
++ENTRY(_start)
++SECTIONS
++{
++  /DISCARD/ : { *(.discard.*) }
++
++  . = 0x10000;
++  .text : { *(.text) }
++  . = 0x20000;
++  .got  : { *(.got) *(.got.plt)}
++  . = 0x30000;
++  .data : { *(.data) *(.data.*) }
++}
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-discard.s b/ld/testsuite/ld-loongarch-elf/relr-discard.s
+new file mode 100644
+index 00000000..b52374a5
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-discard.s
+@@ -0,0 +1,61 @@
++# Test DT_RELR with references in discarded sections.
++
++.text
++.p2align 3
++.global _start
++_start:
++	nop
++
++sym_local:
++	nop
++
++.global sym_hidden
++.hidden sym_hidden
++sym_hidden:
++	nop
++
++.global sym_global
++sym_global:
++	nop
++
++.global sym_global_abs
++.set sym_global_abs, 42
++
++.global sym_weak_undef
++.weak sym_weak_undef
++
++.section .discard.got_local,"ax"
++	la.got $a0, sym_local
++
++.section .discard.got_global,"ax"
++	la.got $a0, sym_global
++
++.section .discard.local,"a"
++.p2align 1
++discard_local:
++.quad sym_local
++
++.section .discard.hidden,"a"
++.p2align 1
++discard_hidden:
++.quad sym_hidden
++
++.section .discard.global,"a"
++.p2align 1
++discard_global:
++.quad sym_global
++
++.section .discard.global_abs,"a"
++.p2align 1
++discard_global_abs:
++.quad sym_global_abs
++
++.section .discard.weak_undef,"a"
++.p2align 1
++discard_weak_undef:
++.quad sym_weak_undef
++
++.section .discard._DYNAMIC,"a"
++.p2align 1
++discard_DYNAMIC:
++.quad _DYNAMIC
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-got-pie.d b/ld/testsuite/ld-loongarch-elf/relr-got-pie.d
+new file mode 100644
+index 00000000..e994f2bf
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-got-pie.d
+@@ -0,0 +1,15 @@
++#source: relr-got.s
++#ld: -pie -z pack-relative-relocs -T relr-relocs.ld
++#readelf: -rW
++
++Relocation section '.rela.dyn' at offset 0x[0-9a-f]+ contains 2 entries:
++    Offset             Info             Type               Symbol's Value  Symbol's Name \+ Addend
++0000000000000000  0000000000000000 R_LARCH_NONE                              0
++0000000000020030  0000000200000002 R_LARCH_64             0000000000000000 sym_weak_undef \+ 0
++
++Relocation section '.relr.dyn' at offset 0x[0-9a-f]+ contains 2 entries which relocate 4 locations:
++Index: Entry            Address           Symbolic Address
++0000:  0000000000020008 0000000000020008  _GLOBAL_OFFSET_TABLE_ \+ 0x8
++0001:  000000000000000f 0000000000020010  _GLOBAL_OFFSET_TABLE_ \+ 0x10
++                        0000000000020018  _GLOBAL_OFFSET_TABLE_ \+ 0x18
++                        0000000000020020  _GLOBAL_OFFSET_TABLE_ \+ 0x20
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-got-shared.d b/ld/testsuite/ld-loongarch-elf/relr-got-shared.d
+new file mode 100644
+index 00000000..169e0e5d
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-got-shared.d
+@@ -0,0 +1,15 @@
++#source: relr-got.s
++#ld: -shared -z pack-relative-relocs -T relr-relocs.ld
++#readelf: -rW
++
++Relocation section '\.rela\.dyn' at offset 0x[0-9a-f]+ contains 3 entries:
++    Offset             Info             Type               Symbol's Value  Symbol's Name \+ Addend
++0000000000020020  0000000300000002 R_LARCH_64             0000000000010034 sym_global \+ 0
++0000000000020028  0000000500000002 R_LARCH_64             000000000000002a sym_global_abs \+ 0
++0000000000020030  0000000200000002 R_LARCH_64             0000000000000000 sym_weak_undef \+ 0
++
++Relocation section '\.relr\.dyn' at offset 0x[0-9a-f]+ contains 2 entries which relocate 3 locations:
++Index: Entry            Address           Symbolic Address
++0000:  0000000000020008 0000000000020008  _GLOBAL_OFFSET_TABLE_ \+ 0x8
++0001:  0000000000000007 0000000000020010  _GLOBAL_OFFSET_TABLE_ \+ 0x10
++                        0000000000020018  _GLOBAL_OFFSET_TABLE_ \+ 0x18
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-got.s b/ld/testsuite/ld-loongarch-elf/relr-got.s
+new file mode 100644
+index 00000000..162528bc
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-got.s
+@@ -0,0 +1,27 @@
++.text
++.global _start
++_start:
++	la.got	$a0, sym_local
++	la.got	$a1, sym_hidden
++	la.got	$a2, sym_global
++	la.got	$a3, sym_global_abs
++	la.got	$a4, sym_weak_undef
++	la.got	$a5, _DYNAMIC
++
++sym_local:
++	nop
++
++.global sym_hidden
++.hidden sym_hidden
++sym_hidden:
++	nop
++
++.global sym_global
++sym_global:
++	nop
++
++.global sym_global_abs
++.set sym_global_abs, 42
++
++.global sym_weak_undef
++.weak sym_weak_undef
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-relocs.ld b/ld/testsuite/ld-loongarch-elf/relr-relocs.ld
+new file mode 100644
+index 00000000..ed83275b
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-relocs.ld
+@@ -0,0 +1,24 @@
++/* Script for DT_RELR tests */
++OUTPUT_ARCH(loongarch64)
++ENTRY(_start)
++SECTIONS
++{
++	PROVIDE (__executable_start = 0x8000); . = 0x10000;
++	.text :
++	{
++		*(.before)
++		*(.text)
++		*(.after)
++	} =0
++	. = 0x20000;
++	.got :
++	{
++		*(.got)
++		*(.got.plt)
++	}
++	. = 0x12340000;
++	.data :
++	{
++		*(.data)
++	}
++}
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-text-pie.d b/ld/testsuite/ld-loongarch-elf/relr-text-pie.d
+new file mode 100644
+index 00000000..5121313e
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-text-pie.d
+@@ -0,0 +1,14 @@
++#source: relr-text.s
++#ld: -pie -z pack-relative-relocs -T relr-relocs.ld
++#readelf: -drW
++
++#...
++ 0x0000000000000016 \(TEXTREL\)            0x0
++#...
++ 0x0000000000000024 \(RELR\)               .*
++ 0x0000000000000023 \(RELRSZ\)             8 \(bytes\)
++ 0x0000000000000025 \(RELRENT\)            8 \(bytes\)
++#...
++Relocation section '\.relr\.dyn' .* contains 1 entry which relocates 1 location:
++Index: Entry            Address           Symbolic Address
++0000:  0000000000010000 0000000000010000  _start
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-text-shared.d b/ld/testsuite/ld-loongarch-elf/relr-text-shared.d
+new file mode 100644
+index 00000000..8e34500f
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-text-shared.d
+@@ -0,0 +1,14 @@
++#source: relr-text.s
++#ld: -shared -z pack-relative-relocs -T relr-relocs.ld
++#readelf: -drW
++
++#...
++ 0x0000000000000016 \(TEXTREL\)            0x0
++#...
++ 0x0000000000000024 \(RELR\)               .*
++ 0x0000000000000023 \(RELRSZ\)             8 \(bytes\)
++ 0x0000000000000025 \(RELRENT\)            8 \(bytes\)
++#...
++Relocation section '\.relr\.dyn' .* contains 1 entry which relocates 1 location:
++Index: Entry            Address           Symbolic Address
++0000:  0000000000010000 0000000000010000  _start
+diff --git a/ld/testsuite/ld-loongarch-elf/relr-text.s b/ld/testsuite/ld-loongarch-elf/relr-text.s
+new file mode 100644
+index 00000000..47465f2d
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relr-text.s
+@@ -0,0 +1,10 @@
++# Test DT_RELR with DT_TEXTREL and R_LARCH_ALIGN.
++
++.text
++.p2align 5
++.global _start
++_start:
++.global foo
++.hidden foo
++foo:
++.quad foo
+-- 
+2.33.0
+

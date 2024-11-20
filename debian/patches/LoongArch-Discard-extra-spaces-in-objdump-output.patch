@@ -1,0 +1,131 @@
+From c65840dfbeb0e2b292439b3627a0a29436649845 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Wed, 3 Jan 2024 19:57:10 +0800
+Subject: [PATCH 041/123] LoongArch: Discard extra spaces in objdump output
+
+Due to the formatted output of objdump, some instructions
+that do not require output operands (such as nop/ret) will
+have extra spaces added after them.
+
+Determine whether to output operands through the format
+of opcodes. When opc->format is an empty string, no extra
+spaces are output.
+---
+ gas/testsuite/gas/loongarch/64_pcrel.d             |  2 +-
+ .../gas/loongarch/deprecated_reg_aliases.d         |  2 +-
+ gas/testsuite/gas/loongarch/jmp_op.d               |  4 ++--
+ gas/testsuite/gas/loongarch/nop.d                  |  2 +-
+ gas/testsuite/gas/loongarch/privilege_op.d         | 14 +++++++-------
+ gas/testsuite/gas/loongarch/reloc.d                |  2 +-
+ opcodes/loongarch-dis.c                            |  7 ++++++-
+ 7 files changed, 19 insertions(+), 14 deletions(-)
+
+diff --git a/gas/testsuite/gas/loongarch/64_pcrel.d b/gas/testsuite/gas/loongarch/64_pcrel.d
+index 66b80a39..642e3079 100644
+--- a/gas/testsuite/gas/loongarch/64_pcrel.d
++++ b/gas/testsuite/gas/loongarch/64_pcrel.d
+@@ -7,5 +7,5 @@
+ Disassembly of section .text:
+ 
+ 00000000.* <.text>:
+-[ 	]+0:[ 	]+03400000[ 	]+nop[ 	]+
++[ 	]+0:[ 	]+03400000[ 	]+nop
+ [ 	]+0:[ 	]+R_LARCH_64_PCREL[ 	]+\*ABS\*
+diff --git a/gas/testsuite/gas/loongarch/deprecated_reg_aliases.d b/gas/testsuite/gas/loongarch/deprecated_reg_aliases.d
+index 3ea08067..01e593fb 100644
+--- a/gas/testsuite/gas/loongarch/deprecated_reg_aliases.d
++++ b/gas/testsuite/gas/loongarch/deprecated_reg_aliases.d
+@@ -15,4 +15,4 @@ Disassembly of section .text:
+ [ 	]+8:[ 	]+16024685[ 	]+lu32i\.d[ 	]+\$a1, 4660
+ [ 	]+c:[ 	]+08200420[ 	]+fmadd\.d[ 	]+\$fa0, \$fa1, \$fa1, \$fa0
+ [ 	]+10:[ 	]+380c16a4[ 	]+ldx\.d[ 	]+\$a0, \$r21, \$a1
+-[ 	]+14:[ 	]+4c000020[ 	]+ret[ 	]+
++[ 	]+14:[ 	]+4c000020[ 	]+ret
+diff --git a/gas/testsuite/gas/loongarch/jmp_op.d b/gas/testsuite/gas/loongarch/jmp_op.d
+index cc544f11..21576072 100644
+--- a/gas/testsuite/gas/loongarch/jmp_op.d
++++ b/gas/testsuite/gas/loongarch/jmp_op.d
+@@ -7,7 +7,7 @@
+ Disassembly of section .text:
+ 
+ 00000000.* <.L1>:
+-[ 	]+0:[ 	]+03400000[ 	]+nop[ 	]+
++[ 	]+0:[ 	]+03400000[ 	]+nop
+ [ 	]+4:[ 	]+63fffc04[ 	]+bgtz[ 	]+\$a0,[ 	]+-4[ 	]+#[ 	]+0[ 	]+<\.L1>
+ [ 	]+4:[ 	]+R_LARCH_B16[ 	]+\.L1
+ [ 	]+8:[ 	]+67fff880[ 	]+bgez[ 	]+\$a0,[ 	]+-8[ 	]+#[ 	]+0[ 	]+<\.L1>
+@@ -47,4 +47,4 @@ Disassembly of section .text:
+ [ 	]+4c:[ 	]+R_LARCH_B16[ 	]+\.L1
+ [ 	]+50:[ 	]+6fffb0a4[ 	]+bgeu[ 	]+\$a1,[ 	]+\$a0,[ 	]+-80[ 	]+#[ 	]+0[ 	]+<\.L1>
+ [ 	]+50:[ 	]+R_LARCH_B16[ 	]+\.L1
+-[ 	]+54:[ 	]+4c000020[ 	]+ret[ 	]+
++[ 	]+54:[ 	]+4c000020[ 	]+ret
+diff --git a/gas/testsuite/gas/loongarch/nop.d b/gas/testsuite/gas/loongarch/nop.d
+index 222456e8..ca8c5630 100644
+--- a/gas/testsuite/gas/loongarch/nop.d
++++ b/gas/testsuite/gas/loongarch/nop.d
+@@ -7,4 +7,4 @@
+ Disassembly of section .text:
+ 
+ 0+000 <target>:
+-[ 	]+0:[ 	]+03400000[ 	]+nop[ 	]+
++[ 	]+0:[ 	]+03400000[ 	]+nop
+diff --git a/gas/testsuite/gas/loongarch/privilege_op.d b/gas/testsuite/gas/loongarch/privilege_op.d
+index 73925f21..e9ca60b2 100644
+--- a/gas/testsuite/gas/loongarch/privilege_op.d
++++ b/gas/testsuite/gas/loongarch/privilege_op.d
+@@ -31,13 +31,13 @@ Disassembly of section .text:
+ [ 	]+54:[ 	]+064814a4 [ 	]+iocsrwr.h[ 	]+[ 	]+\$a0, \$a1
+ [ 	]+58:[ 	]+064818a4 [ 	]+iocsrwr.w[ 	]+[ 	]+\$a0, \$a1
+ [ 	]+5c:[ 	]+06481ca4 [ 	]+iocsrwr.d[ 	]+[ 	]+\$a0, \$a1
+-[ 	]+60:[ 	]+06482000 [ 	]+tlbclr[ 	]+
+-[ 	]+64:[ 	]+06482400 [ 	]+tlbflush[ 	]+
+-[ 	]+68:[ 	]+06482800 [ 	]+tlbsrch[ 	]+
+-[ 	]+6c:[ 	]+06482c00 [ 	]+tlbrd[ 	]+
+-[ 	]+70:[ 	]+06483000 [ 	]+tlbwr[ 	]+
+-[ 	]+74:[ 	]+06483400 [ 	]+tlbfill[ 	]+
+-[ 	]+78:[ 	]+06483800 [ 	]+ertn[ 	]+
++[ 	]+60:[ 	]+06482000 [ 	]+tlbclr
++[ 	]+64:[ 	]+06482400 [ 	]+tlbflush
++[ 	]+68:[ 	]+06482800 [ 	]+tlbsrch
++[ 	]+6c:[ 	]+06482c00 [ 	]+tlbrd
++[ 	]+70:[ 	]+06483000 [ 	]+tlbwr
++[ 	]+74:[ 	]+06483400 [ 	]+tlbfill
++[ 	]+78:[ 	]+06483800 [ 	]+ertn
+ [ 	]+7c:[ 	]+06488000 [ 	]+idle[ 	]+[ 	]+0x0
+ [ 	]+80:[ 	]+0648ffff [ 	]+idle[ 	]+[ 	]+0x7fff
+ [ 	]+84:[ 	]+064998a0 [ 	]+invtlb[ 	]+[ 	]+0x0, \$a1, \$a2
+diff --git a/gas/testsuite/gas/loongarch/reloc.d b/gas/testsuite/gas/loongarch/reloc.d
+index 0458830f..fa249c58 100644
+--- a/gas/testsuite/gas/loongarch/reloc.d
++++ b/gas/testsuite/gas/loongarch/reloc.d
+@@ -8,7 +8,7 @@
+ Disassembly of section .text:
+ 
+ 00000000.* <.text>:
+-[ 	]+0:[ 	]+03400000[ 	]+nop[ 	]+
++[ 	]+0:[ 	]+03400000[ 	]+nop
+ [ 	]+4:[ 	]+58000085[ 	]+beq[ 	]+\$a0,[ 	]+\$a1,[ 	]+0[ 	]+#[ 	]+0x4
+ [ 	]+4:[ 	]+R_LARCH_B16[ 	]+.L1
+ [ 	]+8:[ 	]+5c000085[ 	]+bne[ 	]+\$a0,[ 	]+\$a1,[ 	]+0[ 	]+#[ 	]+0x8
+diff --git a/opcodes/loongarch-dis.c b/opcodes/loongarch-dis.c
+index 969ea28f..941bf363 100644
+--- a/opcodes/loongarch-dis.c
++++ b/opcodes/loongarch-dis.c
+@@ -267,7 +267,12 @@ disassemble_one (insn_t insn, struct disassemble_info *info)
+     }
+ 
+   info->insn_type = dis_nonbranch;
+-  info->fprintf_styled_func (info->stream, dis_style_mnemonic, "%-12s", opc->name);
++  if (opc->format == NULL || opc->format[0] == '\0')
++    info->fprintf_styled_func (info->stream, dis_style_mnemonic,
++				"%s", opc->name);
++  else
++    info->fprintf_styled_func (info->stream, dis_style_mnemonic,
++				"%-12s", opc->name);
+ 
+   {
+     char *fake_args = xmalloc (strlen (opc->format) + 1);
+-- 
+2.33.0
+

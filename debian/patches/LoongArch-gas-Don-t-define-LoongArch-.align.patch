@@ -1,0 +1,82 @@
+From f30bb80d462445ac5557bc65abd4672ce915b9e9 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Sun, 1 Oct 2023 15:29:44 +0800
+Subject: [PATCH 050/123] LoongArch: gas: Don't define LoongArch .align
+
+Gcc may generate "\t.align\t%d,54525952,4\n" before commit
+b20c7ee066cb7d952fa193972e8bc6362c6e4063. To write 54525952 (NOP) to object
+file, we call s_align_ptwo (-4). It result in alignment padding must be a
+multiple of 4 if .align has second parameter.
+
+Use default s_align_ptwo for .align.
+---
+ gas/config/tc-loongarch.c                 | 13 -------------
+ gas/testsuite/gas/loongarch/align.l       |  1 +
+ gas/testsuite/gas/loongarch/align.s       |  5 +++++
+ gas/testsuite/gas/loongarch/loongarch.exp |  1 +
+ 4 files changed, 7 insertions(+), 13 deletions(-)
+ create mode 100644 gas/testsuite/gas/loongarch/align.l
+ create mode 100644 gas/testsuite/gas/loongarch/align.s
+
+diff --git a/gas/config/tc-loongarch.c b/gas/config/tc-loongarch.c
+index 1ae57b45..49470073 100644
+--- a/gas/config/tc-loongarch.c
++++ b/gas/config/tc-loongarch.c
+@@ -436,18 +436,6 @@ loongarch_mach (void)
+ 
+ static const expressionS const_0 = { .X_op = O_constant, .X_add_number = 0 };
+ 
+-static void
+-s_loongarch_align (int arg)
+-{
+-  const char *t = input_line_pointer;
+-  while (!is_end_of_line[(unsigned char) *t] && *t != ',')
+-    ++t;
+-  if (*t == ',')
+-    s_align_ptwo (arg);
+-  else
+-    s_align_ptwo (0);
+-}
+-
+ /* Handle the .dtprelword and .dtpreldword pseudo-ops.  They generate
+    a 32-bit or 64-bit DTP-relative relocation (BYTES says which) for
+    use in DWARF debug information.  */
+@@ -479,7 +467,6 @@ s_dtprel (int bytes)
+ 
+ static const pseudo_typeS loongarch_pseudo_table[] =
+ {
+-  { "align", s_loongarch_align, -4 },
+   { "dword", cons, 8 },
+   { "word", cons, 4 },
+   { "half", cons, 2 },
+diff --git a/gas/testsuite/gas/loongarch/align.l b/gas/testsuite/gas/loongarch/align.l
+new file mode 100644
+index 00000000..8ea739b7
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/align.l
+@@ -0,0 +1 @@
++# No warning or error expected.
+diff --git a/gas/testsuite/gas/loongarch/align.s b/gas/testsuite/gas/loongarch/align.s
+new file mode 100644
+index 00000000..93f25289
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/align.s
+@@ -0,0 +1,5 @@
++# Fix bug: alignment padding must a multiple of 4 if .align has second parameter
++.data
++  .byte 1
++  .align 3, 2
++  .4byte 3
+diff --git a/gas/testsuite/gas/loongarch/loongarch.exp b/gas/testsuite/gas/loongarch/loongarch.exp
+index c0aa593d..fedeeecb 100644
+--- a/gas/testsuite/gas/loongarch/loongarch.exp
++++ b/gas/testsuite/gas/loongarch/loongarch.exp
+@@ -30,4 +30,5 @@ if [istarget loongarch*-*-*] {
+       }
+     }
+ 
++  run_list_test "align"
+ }
+-- 
+2.33.0
+

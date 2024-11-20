@@ -1,0 +1,787 @@
+From 4fcc588a781a65c6a939dc74644c98a0f039f879 Mon Sep 17 00:00:00 2001
+From: Jinyang He <hejinyang@loongson.cn>
+Date: Tue, 5 Sep 2023 10:31:28 +0800
+Subject: [PATCH 059/123] LoongArch: ld: Fix other pop relocs overflow check
+ and add tests
+
+Add reloc_unsign_bits() to fix others sop_pop relocs overflow check.
+Then add over/underflow tests for relocs B*, SOP_POP* and PCREL20_S2.
+
+bfd/ChangeLog:
+
+	* bfd/elfxx-loongarch.c: Add reloc_unsign_bits().
+
+ld/ChangeLog:
+
+	* ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp: Add tests.
+	* ld/testsuite/ld-loongarch-elf/abi1_max_imm.dd: New test.
+	* ld/testsuite/ld-loongarch-elf/abi1_max_imm.s: New test.
+	* ld/testsuite/ld-loongarch-elf/abi1_sops.s: New test.
+	* ld/testsuite/ld-loongarch-elf/abi2_max_imm.s: New test.
+	* ld/testsuite/ld-loongarch-elf/abi2_overflows.s: New test.
+	* ld/testsuite/ld-loongarch-elf/max_imm_b16.d: New test.
+	* ld/testsuite/ld-loongarch-elf/max_imm_b21.d: New test.
+	* ld/testsuite/ld-loongarch-elf/max_imm_b26.d: New test.
+	* ld/testsuite/ld-loongarch-elf/max_imm_pcrel20.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_b16.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_b21.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_b26.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_pcrel20.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_s_0_10_10_16_s2.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_s_0_5_10_16_s2.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_s_10_12.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_s_10_16.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_s_10_16_s2.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_s_10_5.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_s_5_20.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_u.d: New test.
+	* ld/testsuite/ld-loongarch-elf/overflow_u_10_12.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_b16.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_b21.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_b26.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_pcrel20.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_s_0_10_10_16_s2.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_s_0_5_10_16_s2.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_s_10_12.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_s_10_16.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_s_10_16_s2.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_s_10_5.d: New test.
+	* ld/testsuite/ld-loongarch-elf/underflow_s_5_20.d: New test.
+---
+ bfd/elfxx-loongarch.c                         | 34 +++++++++++----
+ ld/testsuite/ld-loongarch-elf/abi1_max_imm.dd | 18 ++++++++
+ ld/testsuite/ld-loongarch-elf/abi1_max_imm.s  | 39 +++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/abi1_sops.s     | 43 +++++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/abi2_max_imm.s  | 24 +++++++++++
+ .../ld-loongarch-elf/abi2_overflows.s         | 24 +++++++++++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     | 39 +++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/max_imm_b16.d   |  9 ++++
+ ld/testsuite/ld-loongarch-elf/max_imm_b21.d   |  9 ++++
+ ld/testsuite/ld-loongarch-elf/max_imm_b26.d   |  9 ++++
+ .../ld-loongarch-elf/max_imm_pcrel20.d        |  9 ++++
+ ld/testsuite/ld-loongarch-elf/overflow_b16.d  |  4 ++
+ ld/testsuite/ld-loongarch-elf/overflow_b21.d  |  4 ++
+ ld/testsuite/ld-loongarch-elf/overflow_b26.d  |  4 ++
+ .../ld-loongarch-elf/overflow_pcrel20.d       |  4 ++
+ .../overflow_s_0_10_10_16_s2.d                |  4 ++
+ .../overflow_s_0_5_10_16_s2.d                 |  4 ++
+ .../ld-loongarch-elf/overflow_s_10_12.d       |  4 ++
+ .../ld-loongarch-elf/overflow_s_10_16.d       |  4 ++
+ .../ld-loongarch-elf/overflow_s_10_16_s2.d    |  4 ++
+ .../ld-loongarch-elf/overflow_s_10_5.d        |  4 ++
+ .../ld-loongarch-elf/overflow_s_5_20.d        |  4 ++
+ ld/testsuite/ld-loongarch-elf/overflow_u.d    |  4 ++
+ .../ld-loongarch-elf/overflow_u_10_12.d       |  4 ++
+ ld/testsuite/ld-loongarch-elf/underflow_b16.d |  4 ++
+ ld/testsuite/ld-loongarch-elf/underflow_b21.d |  4 ++
+ ld/testsuite/ld-loongarch-elf/underflow_b26.d |  4 ++
+ .../ld-loongarch-elf/underflow_pcrel20.d      |  4 ++
+ .../underflow_s_0_10_10_16_s2.d               |  4 ++
+ .../underflow_s_0_5_10_16_s2.d                |  4 ++
+ .../ld-loongarch-elf/underflow_s_10_12.d      |  4 ++
+ .../ld-loongarch-elf/underflow_s_10_16.d      |  4 ++
+ .../ld-loongarch-elf/underflow_s_10_16_s2.d   |  4 ++
+ .../ld-loongarch-elf/underflow_s_10_5.d       |  4 ++
+ .../ld-loongarch-elf/underflow_s_5_20.d       |  4 ++
+ 35 files changed, 344 insertions(+), 9 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abi1_max_imm.dd
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abi1_max_imm.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abi1_sops.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abi2_max_imm.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/abi2_overflows.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/max_imm_b16.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/max_imm_b21.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/max_imm_b26.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/max_imm_pcrel20.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_b16.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_b21.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_b26.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_pcrel20.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_s_0_10_10_16_s2.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_s_0_5_10_16_s2.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_s_10_12.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_s_10_16.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_s_10_16_s2.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_s_10_5.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_s_5_20.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_u.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/overflow_u_10_12.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_b16.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_b21.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_b26.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_pcrel20.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_s_0_10_10_16_s2.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_s_0_5_10_16_s2.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_s_10_12.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_s_10_16.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_s_10_16_s2.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_s_10_5.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/underflow_s_5_20.d
+
+diff --git a/bfd/elfxx-loongarch.c b/bfd/elfxx-loongarch.c
+index 127f3548..ee1323ea 100644
+--- a/bfd/elfxx-loongarch.c
++++ b/bfd/elfxx-loongarch.c
+@@ -55,6 +55,8 @@ static bool
+ reloc_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *val);
+ static bool
+ reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val);
++static bool
++reloc_unsign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val);
+ 
+ static bfd_reloc_status_type
+ loongarch_elf_add_sub_reloc (bfd *, arelent *, asymbol *, void *,
+@@ -415,7 +417,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 0x7c00,				  /* dst_mask */
+ 	 false,					  /* pcrel_offset */
+ 	 BFD_RELOC_LARCH_SOP_POP_32_S_10_5,	  /* bfd_reloc_code_real_type */
+-	 reloc_bits,				  /* adjust_reloc_bits */
++	 reloc_sign_bits,			  /* adjust_reloc_bits */
+ 	 NULL),					  /* larch_reloc_type_name */
+ 
+   LOONGARCH_HOWTO (R_LARCH_SOP_POP_32_U_10_12,	  /* type (39).  */
+@@ -432,7 +434,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 0x3ffc00,				  /* dst_mask */
+ 	 false,					  /* pcrel_offset */
+ 	 BFD_RELOC_LARCH_SOP_POP_32_U_10_12,	  /* bfd_reloc_code_real_type */
+-	 reloc_bits,				  /* adjust_reloc_bits */
++	 reloc_unsign_bits,			  /* adjust_reloc_bits */
+ 	 NULL),					  /* larch_reloc_type_name */
+ 
+   LOONGARCH_HOWTO (R_LARCH_SOP_POP_32_S_10_12,	  /* type (40).  */
+@@ -449,7 +451,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 0x3ffc00,				  /* dst_mask */
+ 	 false,					  /* pcrel_offset */
+ 	 BFD_RELOC_LARCH_SOP_POP_32_S_10_12,	  /* bfd_reloc_code_real_type */
+-	 reloc_bits,				  /* adjust_reloc_bits */
++	 reloc_sign_bits,			  /* adjust_reloc_bits */
+ 	 NULL),					  /* larch_reloc_type_name */
+ 
+   LOONGARCH_HOWTO (R_LARCH_SOP_POP_32_S_10_16,	  /* type (41).  */
+@@ -466,7 +468,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 0x3fffc00,				  /* dst_mask */
+ 	 false,					  /* pcrel_offset */
+ 	 BFD_RELOC_LARCH_SOP_POP_32_S_10_16,	  /* bfd_reloc_code_real_type */
+-	 reloc_bits,				  /* adjust_reloc_bits */
++	 reloc_sign_bits,			  /* adjust_reloc_bits */
+ 	 NULL),					  /* larch_reloc_type_name */
+ 
+   LOONGARCH_HOWTO (R_LARCH_SOP_POP_32_S_10_16_S2, /* type (42).  */
+@@ -500,7 +502,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 0x1ffffe0,				  /* dst_mask */
+ 	 false,					  /* pcrel_offset */
+ 	 BFD_RELOC_LARCH_SOP_POP_32_S_5_20,	  /* bfd_reloc_code_real_type */
+-	 reloc_bits,				  /* adjust_reloc_bits */
++	 reloc_sign_bits,			  /* adjust_reloc_bits */
+ 	 NULL),					  /* larch_reloc_type_name */
+ 
+   LOONGARCH_HOWTO (R_LARCH_SOP_POP_32_S_0_5_10_16_S2,
+@@ -554,7 +556,7 @@ static loongarch_reloc_howto_type loongarch_howto_table[] =
+ 	 0x00000000ffffffff,			/* dst_mask */
+ 	 false,					/* pcrel_offset */
+ 	 BFD_RELOC_LARCH_SOP_POP_32_U,		/* bfd_reloc_code_real_type */
+-	 reloc_bits,				/* adjust_reloc_bits */
++	 reloc_unsign_bits,			/* adjust_reloc_bits */
+ 	 NULL),					/* larch_reloc_type_name */
+ 
+   /* 8-bit in-place addition, for local label subtraction.  */
+@@ -1991,9 +1993,11 @@ reloc_bits (bfd *abfd ATTRIBUTE_UNUSED,
+ }
+ 
+ static bool
+-reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
++reloc_bits_sanity (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val,
++		   unsigned int sign)
+ {
+-  if (howto->complain_on_overflow != complain_overflow_signed)
++  if ((sign && howto->complain_on_overflow != complain_overflow_signed)
++      || (!sign && howto->complain_on_overflow != complain_overflow_unsigned))
+     return false;
+ 
+   bfd_signed_vma val = (bfd_signed_vma)(*fix_val);
+@@ -2014,7 +2018,7 @@ reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
+     }
+ 
+   bfd_signed_vma mask = ((bfd_signed_vma)0x1 << (howto->bitsize
+-			  + howto->rightshift - 1)) - 1;
++			  + howto->rightshift - sign)) - 1;
+ 
+   /* Positive number: high part is all 0;
+      Negative number: if high part is not all 0, high part must be all 1.
+@@ -2064,6 +2068,18 @@ reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
+   return true;
+ }
+ 
++static bool
++reloc_sign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
++{
++  return reloc_bits_sanity (abfd, howto, fix_val, 1);
++}
++
++static bool
++reloc_unsign_bits (bfd *abfd, reloc_howto_type *howto, bfd_vma *fix_val)
++{
++  return reloc_bits_sanity (abfd, howto, fix_val, 0);
++}
++
+ bool
+ loongarch_adjust_reloc_bitsfield (bfd *abfd, reloc_howto_type *howto,
+ 				  bfd_vma *fix_val)
+diff --git a/ld/testsuite/ld-loongarch-elf/abi1_max_imm.dd b/ld/testsuite/ld-loongarch-elf/abi1_max_imm.dd
+new file mode 100644
+index 00000000..c8527140
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abi1_max_imm.dd
+@@ -0,0 +1,18 @@
++#...
++.*00003c00.*
++.*00004000.*
++.*001ffc00.*
++.*00200000.*
++.*01fffc00.*
++.*02000000.*
++.*01fffc00.*
++.*02000000.*
++.*03fffc0f.*
++.*00000010.*
++.*03fffdff.*
++.*00000200.*
++.*00ffffe0.*
++.*01000000.*
++.*003ffc00.*
++.*ffffffff.*
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/abi1_max_imm.s b/ld/testsuite/ld-loongarch-elf/abi1_max_imm.s
+new file mode 100644
+index 00000000..02507f19
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abi1_max_imm.s
+@@ -0,0 +1,39 @@
++.macro sign_check reloc_name reloc_bits
++  .reloc off, R_LARCH_SOP_PUSH_ABSOLUTE, (1 << (\reloc_bits - 1)) - 1
++  .reloc off, \reloc_name
++  .word 0
++  .set off, off + 4
++  .reloc off, R_LARCH_SOP_PUSH_ABSOLUTE, -(1 << (\reloc_bits - 1))
++  .reloc off, \reloc_name
++  .word 0
++  .set off, off + 4
++.endm
++
++.macro sign_check_s2 reloc_name reloc_bits
++  .reloc off, R_LARCH_SOP_PUSH_ABSOLUTE, ((1 << (\reloc_bits - 1)) - 1) << 2
++  .reloc off, \reloc_name
++  .word 0
++  .set off, off + 4
++  .reloc off, R_LARCH_SOP_PUSH_ABSOLUTE, (-(1 << (\reloc_bits - 1))) << 2
++  .reloc off, \reloc_name
++  .word 0
++  .set off, off + 4
++.endm
++
++.macro unsign_check reloc_name reloc_bits
++  .reloc off, R_LARCH_SOP_PUSH_ABSOLUTE, (1 << \reloc_bits) - 1
++  .reloc off, \reloc_name
++  .word 0
++  .set off, off + 4
++.endm
++
++.set off, 0
++sign_check R_LARCH_SOP_POP_32_S_10_5 5
++sign_check R_LARCH_SOP_POP_32_S_10_12 12
++sign_check R_LARCH_SOP_POP_32_S_10_16 16
++sign_check_s2 R_LARCH_SOP_POP_32_S_10_16_S2 16
++sign_check_s2 R_LARCH_SOP_POP_32_S_0_5_10_16_S2 21
++sign_check_s2 R_LARCH_SOP_POP_32_S_0_10_10_16_S2 26
++sign_check R_LARCH_SOP_POP_32_S_5_20 20
++unsign_check R_LARCH_SOP_POP_32_U_10_12 12
++unsign_check R_LARCH_SOP_POP_32_U 32
+diff --git a/ld/testsuite/ld-loongarch-elf/abi1_sops.s b/ld/testsuite/ld-loongarch-elf/abi1_sops.s
+new file mode 100644
+index 00000000..34f2d592
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abi1_sops.s
+@@ -0,0 +1,43 @@
++.macro sign_check reloc_sym reloc_name reloc_bits
++  .ifdef \reloc_sym
++    .ifdef overflow
++      .reloc 0, R_LARCH_SOP_PUSH_ABSOLUTE, 1 << (\reloc_bits - 1)
++      .reloc 0, \reloc_name
++    .else
++      .reloc 0, R_LARCH_SOP_PUSH_ABSOLUTE, -(1 << (\reloc_bits - 1)) - 1
++      .reloc 0, \reloc_name
++    .endif
++    .word 0
++  .endif
++.endm
++
++.macro sign_check_s2 reloc_sym reloc_name reloc_bits
++  .ifdef \reloc_sym
++    .ifdef overflow
++      .reloc 0, R_LARCH_SOP_PUSH_ABSOLUTE, (1 << (\reloc_bits - 1)) << 2
++      .reloc 0, \reloc_name
++    .else
++      .reloc 0, R_LARCH_SOP_PUSH_ABSOLUTE, (-(1 << (\reloc_bits - 1)) - 1) << 2
++      .reloc 0, \reloc_name
++    .endif
++    .word 0
++  .endif
++.endm
++
++.macro unsign_check reloc_sym reloc_name reloc_bits
++  .ifdef \reloc_sym
++    .reloc 0, R_LARCH_SOP_PUSH_ABSOLUTE, 1 << \reloc_bits
++    .reloc 0, \reloc_name
++    .word 0
++  .endif
++.endm
++
++sign_check	s_10_5		R_LARCH_SOP_POP_32_S_10_5 5
++sign_check	s_10_12		R_LARCH_SOP_POP_32_S_10_12 12
++sign_check	s_10_16		R_LARCH_SOP_POP_32_S_10_16 16
++sign_check_s2	s_10_16_s2	R_LARCH_SOP_POP_32_S_10_16_S2 16
++sign_check_s2	s_0_5_10_16_s2	R_LARCH_SOP_POP_32_S_0_5_10_16_S2 21
++sign_check_s2	s_0_10_10_16_s2	R_LARCH_SOP_POP_32_S_0_10_10_16_S2 26
++sign_check	s_5_20		R_LARCH_SOP_POP_32_S_5_20 20
++unsign_check	u_10_12		R_LARCH_SOP_POP_32_U_10_12 12
++unsign_check	u		R_LARCH_SOP_POP_32_U 32
+diff --git a/ld/testsuite/ld-loongarch-elf/abi2_max_imm.s b/ld/testsuite/ld-loongarch-elf/abi2_max_imm.s
+new file mode 100644
+index 00000000..f1bc3868
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abi2_max_imm.s
+@@ -0,0 +1,24 @@
++  .text
++.ifdef b16
++  beq $a0, $a1, low
++  beq $a0, $a1, high
++.endif
++.ifdef b21
++  beqz $a0, low
++  beqz $a0, high
++.endif
++.ifdef b26
++  b low
++  b high
++.endif
++.ifdef pcrel20
++  .reloc 0, R_LARCH_PCREL20_S2, low
++  pcaddi $a0, 0
++  .reloc 4, R_LARCH_PCREL20_S2, high
++  pcaddi $a0, 0
++.endif
++
++  .section ".low"
++low: nop
++  .section ".high"
++high: nop
+diff --git a/ld/testsuite/ld-loongarch-elf/abi2_overflows.s b/ld/testsuite/ld-loongarch-elf/abi2_overflows.s
+new file mode 100644
+index 00000000..1c25bd8c
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/abi2_overflows.s
+@@ -0,0 +1,24 @@
++  .text
++
++.set idx, 0
++.ifdef underflow
++  nop
++  .set idx, 4
++.endif
++
++.ifdef b16
++  beq $a0, $a1, local_sym
++.endif
++.ifdef b21
++  beqz $a0, local_sym
++.endif
++.ifdef b26
++  b local_sym
++.endif
++.ifdef pcrel20
++  .reloc idx, R_LARCH_PCREL20_S2, local_sym
++  pcaddi $a0, 0
++.endif
++
++  .section ".local_sym"
++local_sym: nop
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 46b53536..7fc43d41 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -35,6 +35,22 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "anno-sym"
+     run_dump_test "pcala64"
+     run_dump_test "tls-le"
++    run_dump_test "overflow_s_10_5"
++    run_dump_test "overflow_s_10_12"
++    run_dump_test "overflow_s_10_16"
++    run_dump_test "overflow_s_10_16_s2"
++    run_dump_test "overflow_s_0_5_10_16_s2"
++    run_dump_test "overflow_s_0_10_10_16_s2"
++    run_dump_test "overflow_s_5_20"
++    run_dump_test "overflow_u_10_12"
++    run_dump_test "overflow_u"
++    run_dump_test "underflow_s_10_5"
++    run_dump_test "underflow_s_10_12"
++    run_dump_test "underflow_s_10_16"
++    run_dump_test "underflow_s_10_16_s2"
++    run_dump_test "underflow_s_0_5_10_16_s2"
++    run_dump_test "underflow_s_0_10_10_16_s2"
++    run_dump_test "underflow_s_5_20"
+ }
+ 
+ if [istarget "loongarch32-*-*"] {
+@@ -95,6 +111,16 @@ if [istarget "loongarch64-*-*"] {
+ 	      {} \
+ 	      "medium-call" \
+ 	  ] \
++	  [list \
++	      "abi1_max_imm" \
++	      "-e 0x0" "" \
++	      "" \
++	      {abi1_max_imm.s} \
++	      [list \
++		  [list objdump -D abi1_max_imm.dd] \
++	      ] \
++	      "abi1_max_imm" \
++	  ] \
+       ]
+ }
+ 
+@@ -108,3 +134,16 @@ if [istarget "loongarch64-*-*"] {
+     run_dump_test "desc-relax"
+   }
+ }
++
++run_dump_test "max_imm_b16"
++run_dump_test "max_imm_b21"
++run_dump_test "max_imm_b26"
++run_dump_test "max_imm_pcrel20"
++run_dump_test "overflow_b16"
++run_dump_test "overflow_b21"
++run_dump_test "overflow_b26"
++run_dump_test "overflow_pcrel20"
++run_dump_test "underflow_b16"
++run_dump_test "underflow_b21"
++run_dump_test "underflow_b26"
++run_dump_test "underflow_pcrel20"
+diff --git a/ld/testsuite/ld-loongarch-elf/max_imm_b16.d b/ld/testsuite/ld-loongarch-elf/max_imm_b16.d
+new file mode 100644
+index 00000000..2c3f6cdb
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/max_imm_b16.d
+@@ -0,0 +1,9 @@
++#source: abi2_max_imm.s
++#as: --defsym b16=1
++#ld: -e 0 -Ttext 0x20000000 --section-start=.low=0x1ffe0000 --section-start=.high=0x20020000
++#objdump: -s
++
++#...
++Contents of section .text:
++ 20000000 8500005a 85fcff59.*
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/max_imm_b21.d b/ld/testsuite/ld-loongarch-elf/max_imm_b21.d
+new file mode 100644
+index 00000000..5861fb46
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/max_imm_b21.d
+@@ -0,0 +1,9 @@
++#source: abi2_max_imm.s
++#as: --defsym b21=1
++#ld: -e 0 -Ttext 0x20000000 --section-start=.low=0x1fc00000 --section-start=.high=0x20400000
++#objdump: -s
++
++#...
++Contents of section .text:
++ 20000000 90000040 8ffcff43.*
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/max_imm_b26.d b/ld/testsuite/ld-loongarch-elf/max_imm_b26.d
+new file mode 100644
+index 00000000..f475ccb3
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/max_imm_b26.d
+@@ -0,0 +1,9 @@
++#source: abi2_max_imm.s
++#as: --defsym b26=1
++#ld: -e 0 -Ttext 0x20000000 --section-start=.low=0x18000000 --section-start=.high=0x28000000
++#objdump: -s
++
++#...
++Contents of section .text:
++ 20000000 00020050 fffdff53.*
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/max_imm_pcrel20.d b/ld/testsuite/ld-loongarch-elf/max_imm_pcrel20.d
+new file mode 100644
+index 00000000..4bd9d2f1
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/max_imm_pcrel20.d
+@@ -0,0 +1,9 @@
++#source: abi2_max_imm.s
++#as: --defsym pcrel20=1
++#ld: -e 0 -Ttext 0x20000000 --section-start=.low=0x1fe00000 --section-start=.high=0x20200000
++#objdump: -s
++
++#...
++Contents of section .text:
++ 20000000 04000019 e4ffff18.*
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_b16.d b/ld/testsuite/ld-loongarch-elf/overflow_b16.d
+new file mode 100644
+index 00000000..26cad414
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_b16.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym overflow=1 --defsym b16=1
++#ld: -e 0 --section-start=.local_sym=0x20020000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_B16 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_b21.d b/ld/testsuite/ld-loongarch-elf/overflow_b21.d
+new file mode 100644
+index 00000000..826856f2
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_b21.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym overflow=1 --defsym b21=1
++#ld: -e 0 --section-start=.local_sym=0x20400000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_B21 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_b26.d b/ld/testsuite/ld-loongarch-elf/overflow_b26.d
+new file mode 100644
+index 00000000..474e5751
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_b26.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym overflow=1 --defsym b26=1
++#ld: -e 0 --section-start=.local_sym=0x28000000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_B26 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_pcrel20.d b/ld/testsuite/ld-loongarch-elf/overflow_pcrel20.d
+new file mode 100644
+index 00000000..420be729
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_pcrel20.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym overflow=1 --defsym pcrel20=1
++#ld: -e 0 --section-start=.local_sym=0x20200000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_PCREL20_S2 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_s_0_10_10_16_s2.d b/ld/testsuite/ld-loongarch-elf/overflow_s_0_10_10_16_s2.d
+new file mode 100644
+index 00000000..621054b1
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_s_0_10_10_16_s2.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym s_0_10_10_16_s2=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_0_10_10_16_S2 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_s_0_5_10_16_s2.d b/ld/testsuite/ld-loongarch-elf/overflow_s_0_5_10_16_s2.d
+new file mode 100644
+index 00000000..348f5ae9
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_s_0_5_10_16_s2.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym s_0_5_10_16_s2=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_0_5_10_16_S2 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_s_10_12.d b/ld/testsuite/ld-loongarch-elf/overflow_s_10_12.d
+new file mode 100644
+index 00000000..dcadff7e
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_s_10_12.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym s_10_12=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_12 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_s_10_16.d b/ld/testsuite/ld-loongarch-elf/overflow_s_10_16.d
+new file mode 100644
+index 00000000..3677415a
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_s_10_16.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym s_10_16=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_16 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_s_10_16_s2.d b/ld/testsuite/ld-loongarch-elf/overflow_s_10_16_s2.d
+new file mode 100644
+index 00000000..24ffa811
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_s_10_16_s2.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym s_10_16_s2=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_16_S2 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_s_10_5.d b/ld/testsuite/ld-loongarch-elf/overflow_s_10_5.d
+new file mode 100644
+index 00000000..7881457d
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_s_10_5.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym s_10_5=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_5 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_s_5_20.d b/ld/testsuite/ld-loongarch-elf/overflow_s_5_20.d
+new file mode 100644
+index 00000000..5f06eed8
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_s_5_20.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym s_5_20=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_5_20 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_u.d b/ld/testsuite/ld-loongarch-elf/overflow_u.d
+new file mode 100644
+index 00000000..96906f64
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_u.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym u=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_U against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/overflow_u_10_12.d b/ld/testsuite/ld-loongarch-elf/overflow_u_10_12.d
+new file mode 100644
+index 00000000..9d8e0905
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/overflow_u_10_12.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym overflow=1 --defsym u_10_12=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_U_10_12 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_b16.d b/ld/testsuite/ld-loongarch-elf/underflow_b16.d
+new file mode 100644
+index 00000000..e2e21949
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_b16.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym underflow=1 --defsym b16=1
++#ld: -e 0 --section-start=.local_sym=0x1ffe0000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_B16 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_b21.d b/ld/testsuite/ld-loongarch-elf/underflow_b21.d
+new file mode 100644
+index 00000000..6f56526b
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_b21.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym underflow=1 --defsym b21=1
++#ld: -e 0 --section-start=.local_sym=0x1fc00000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_B21 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_b26.d b/ld/testsuite/ld-loongarch-elf/underflow_b26.d
+new file mode 100644
+index 00000000..5756cc14
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_b26.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym underflow=1 --defsym b26=1
++#ld: -e 0 --section-start=.local_sym=0x18000000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_B26 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_pcrel20.d b/ld/testsuite/ld-loongarch-elf/underflow_pcrel20.d
+new file mode 100644
+index 00000000..e65c60ad
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_pcrel20.d
+@@ -0,0 +1,4 @@
++#source: abi2_overflows.s
++#as: --defsym underflow=1 --defsym pcrel20=1
++#ld: -e 0 --section-start=.local_sym=0x1fe00000 -Ttext 0x20000000
++#error: .*relocation truncated to fit: R_LARCH_PCREL20_S2 against `local_sym'
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_s_0_10_10_16_s2.d b/ld/testsuite/ld-loongarch-elf/underflow_s_0_10_10_16_s2.d
+new file mode 100644
+index 00000000..3e7715a2
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_s_0_10_10_16_s2.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym underflow=1 --defsym s_0_10_10_16_s2=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_0_10_10_16_S2 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_s_0_5_10_16_s2.d b/ld/testsuite/ld-loongarch-elf/underflow_s_0_5_10_16_s2.d
+new file mode 100644
+index 00000000..14be5a9c
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_s_0_5_10_16_s2.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym underflow=1 --defsym s_0_5_10_16_s2=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_0_5_10_16_S2 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_s_10_12.d b/ld/testsuite/ld-loongarch-elf/underflow_s_10_12.d
+new file mode 100644
+index 00000000..ed9fe9b7
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_s_10_12.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym underflow=1 --defsym s_10_12=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_12 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_s_10_16.d b/ld/testsuite/ld-loongarch-elf/underflow_s_10_16.d
+new file mode 100644
+index 00000000..03b851b5
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_s_10_16.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym underflow=1 --defsym s_10_16=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_16 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_s_10_16_s2.d b/ld/testsuite/ld-loongarch-elf/underflow_s_10_16_s2.d
+new file mode 100644
+index 00000000..c0e4ca03
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_s_10_16_s2.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym underflow=1 --defsym s_10_16_s2=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_16_S2 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_s_10_5.d b/ld/testsuite/ld-loongarch-elf/underflow_s_10_5.d
+new file mode 100644
+index 00000000..77d0eb04
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_s_10_5.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym underflow=1 --defsym s_10_5=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_10_5 against `<nameless>'
+\ No newline at end of file
+diff --git a/ld/testsuite/ld-loongarch-elf/underflow_s_5_20.d b/ld/testsuite/ld-loongarch-elf/underflow_s_5_20.d
+new file mode 100644
+index 00000000..c458bb81
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/underflow_s_5_20.d
+@@ -0,0 +1,4 @@
++#source: abi1_sops.s
++#as: --defsym underflow=1 --defsym s_5_20=1
++#ld: -e 0
++#error: .*relocation truncated to fit: R_LARCH_SOP_POP_32_S_5_20 against `<nameless>'
+\ No newline at end of file
+-- 
+2.33.0
+

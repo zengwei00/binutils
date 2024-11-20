@@ -1,0 +1,104 @@
+From f2183b3edb1cee6d9fe0c3dbd26956501bcd6904 Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Fri, 5 Jan 2024 11:41:27 +0800
+Subject: [PATCH 062/123] LoongArch: Add gas testsuit for alias instructions
+
+Test the alias instructions.
+---
+ gas/testsuite/gas/loongarch/insn_alias_32.d | 19 +++++++++++++++++++
+ gas/testsuite/gas/loongarch/insn_alias_32.s | 10 ++++++++++
+ gas/testsuite/gas/loongarch/insn_alias_64.d | 20 ++++++++++++++++++++
+ gas/testsuite/gas/loongarch/insn_alias_64.s | 11 +++++++++++
+ 4 files changed, 60 insertions(+)
+ create mode 100644 gas/testsuite/gas/loongarch/insn_alias_32.d
+ create mode 100644 gas/testsuite/gas/loongarch/insn_alias_32.s
+ create mode 100644 gas/testsuite/gas/loongarch/insn_alias_64.d
+ create mode 100644 gas/testsuite/gas/loongarch/insn_alias_64.s
+
+diff --git a/gas/testsuite/gas/loongarch/insn_alias_32.d b/gas/testsuite/gas/loongarch/insn_alias_32.d
+new file mode 100644
+index 00000000..753eae7a
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_alias_32.d
+@@ -0,0 +1,19 @@
++#as:
++#objdump: -d -M no-aliases
++#skip: loongarch64-*-*
++
++.*     file format .*
++
++
++Disassembly of section .text:
++
++0+ <L1>:
++   0:	001500a4 	or          	\$a0, \$a1, \$zero
++   4:	02bffc04 	addi.w      	\$a0, \$zero, -1
++   8:	03400000 	andi        	\$zero, \$zero, 0x0
++   c:	03800404 	ori         	\$a0, \$zero, 0x1
++  10:	4c000020 	jirl        	\$zero, \$ra, 0
++  14:	4c000020 	jirl        	\$zero, \$ra, 0
++  18:	60000080 	blt         	\$a0, \$zero, 0	# 18 <L1\+0x18>
++  1c:	64000080 	bge         	\$a0, \$zero, 0	# 1c <L1\+0x1c>
++  20:	64000004 	bge         	\$zero, \$a0, 0	# 20 <L1\+0x20>
+diff --git a/gas/testsuite/gas/loongarch/insn_alias_32.s b/gas/testsuite/gas/loongarch/insn_alias_32.s
+new file mode 100644
+index 00000000..8027e32a
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_alias_32.s
+@@ -0,0 +1,10 @@
++L1:
++  move  $a0,$a1
++  li.w  $a0,-1
++  nop
++  li.w	$a0,1
++  ret
++  jr    $ra
++  bltz  $a0,.L1
++  bgez  $a0,.L1
++  blez  $a0,.L1
+diff --git a/gas/testsuite/gas/loongarch/insn_alias_64.d b/gas/testsuite/gas/loongarch/insn_alias_64.d
+new file mode 100644
+index 00000000..8d3ed7bc
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_alias_64.d
+@@ -0,0 +1,20 @@
++#as-new:
++#objdump: -d -M no-aliases
++#skip: loongarch32-*-*
++
++.*:     file format .*
++
++
++Disassembly of section .text:
++
++0+ <L1>:
++   0:	001500a4 	or          	\$a0, \$a1, \$zero
++   4:	02bffc04 	addi.w      	\$a0, \$zero, -1
++   8:	02bffc04 	addi.w      	\$a0, \$zero, -1
++   c:	03400000 	andi        	\$zero, \$zero, 0x0
++  10:	03800404 	ori         	\$a0, \$zero, 0x1
++  14:	4c000020 	jirl        	\$zero, \$ra, 0
++  18:	4c000020 	jirl        	\$zero, \$ra, 0
++  1c:	60000080 	blt         	\$a0, \$zero, 0	# 1c <L1\+0x1c>
++  20:	64000080 	bge         	\$a0, \$zero, 0	# 20 <L1\+0x20>
++  24:	64000004 	bge         	\$zero, \$a0, 0	# 24 <L1\+0x24>
+diff --git a/gas/testsuite/gas/loongarch/insn_alias_64.s b/gas/testsuite/gas/loongarch/insn_alias_64.s
+new file mode 100644
+index 00000000..e7e42638
+--- /dev/null
++++ b/gas/testsuite/gas/loongarch/insn_alias_64.s
+@@ -0,0 +1,11 @@
++L1:
++  move  $a0,$a1
++  li.w  $a0,-1
++  li.d  $a0,-1
++  nop
++  li.w	$a0,1
++  ret
++  jr    $ra
++  bltz  $a0,.L1
++  bgez  $a0,.L1
++  blez  $a0,.L1
+-- 
+2.33.0
+

@@ -1,0 +1,74 @@
+From 9a78ebba126036f6ebdd15ffbe50ffbd8ccd84dd Mon Sep 17 00:00:00 2001
+From: Xi Ruoyao <xry111@xry111.site>
+Date: Mon, 12 Aug 2024 18:23:47 +0800
+Subject: [PATCH 108/123] LoongArch: Fix DT_RELR and relaxation interaction
+
+Due to the way BFD implements DT_RELR as a part of relaxation, if in a
+relax trip size_relative_relocs has changed the layout, when
+relax_section runs only the vma of the section being relaxed is
+guaranteed to be updated.  Then bad thing can happen.  For example, when
+linking an auxilary program _freeze_module in the Python 3.12.4 building
+system (with PGO + LTO), before sizing the .relr.dyn section, the vma of
+.text is 30560 and the vma of .rodata is 2350944; in the final
+executable the vma of .text is 36704 and the vma of .rodata is 2357024.
+The vma increase is expected because .relr.dyn is squashed somewhere
+before .text.  But size_relative_relocs may see the state in which .text
+is at 36704 but .rodata "is" still at 2350944.  Thus the distance
+between .text and .rodata can be under-estimated and overflowing
+R_LARCH_PCREL20_S2 reloc can be created.
+
+To avoid this issue, if size_relative_relocs is updating the size of
+.relr.dyn, just supress the normal relaxation in this relax trip.  In
+this situation size_relative_relocs should have been demending the next
+relax trip, so the normal relaxation can happen in the next trip.
+
+I tried to make a reduced test case but failed.
+
+Signed-off-by: Xi Ruoyao <xry111@xry111.site>
+---
+ bfd/elfnn-loongarch.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 73eea0f9..0c499c47 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -121,6 +121,12 @@ struct loongarch_elf_link_hash_table
+ 
+   /* Layout recomputation count.  */
+   bfd_size_type relr_layout_iter;
++
++  /* In BFD DT_RELR is implemented as a "relaxation."  If in a relax trip
++     size_relative_relocs is updating the layout, relax_section may see
++     a partially updated state (some sections have vma updated but the
++     others do not), and it's unsafe to do the normal relaxation.  */
++  bool layout_mutating_for_relr;
+ };
+ 
+ struct loongarch_elf_section_data
+@@ -2210,6 +2216,8 @@ loongarch_elf_size_relative_relocs (struct bfd_link_info *info,
+          *need_layout = false;
+        }
+     }
++
++  htab->layout_mutating_for_relr = *need_layout;
+   return true;
+ }
+ 
+@@ -5256,6 +5264,13 @@ loongarch_elf_relax_section (bfd *abfd, asection *sec,
+     return true;
+ 
+   struct loongarch_elf_link_hash_table *htab = loongarch_elf_hash_table (info);
++
++  /* It may happen that some sections have updated vma but the others do
++     not.  Go to the next relax trip (size_relative_relocs should have
++     been demending another relax trip anyway).  */
++  if (htab->layout_mutating_for_relr)
++    return true;
++
+   if (bfd_link_relocatable (info)
+       || sec->sec_flg0
+       || (sec->flags & SEC_RELOC) == 0
+-- 
+2.33.0
+

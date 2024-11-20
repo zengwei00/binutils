@@ -1,0 +1,26 @@
+From 00f4bdc23c28986e4bdff1385ab7c6456fe74a6a Mon Sep 17 00:00:00 2001
+From: Xin Wang <wangxin03@loongson.cn>
+Date: Thu, 24 Oct 2024 16:45:16 +0800
+Subject: [PATCH 120/123] Include ldlex.h when compile eelfxxloongarch.c We did
+ not cherry-pick 8d10083c23b9415a6d645b44d136104fcf8ed176 of upstream:master
+ because that modified files which are not related to LoongArch
+
+---
+ ld/emultempl/loongarchelf.em | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ld/emultempl/loongarchelf.em b/ld/emultempl/loongarchelf.em
+index 2e6b8080..e50d85d0 100644
+--- a/ld/emultempl/loongarchelf.em
++++ b/ld/emultempl/loongarchelf.em
+@@ -24,6 +24,7 @@ fragment <<EOF
+ #include "ldctor.h"
+ #include "elf/loongarch.h"
+ #include "elfxx-loongarch.h"
++#include "ldlex.h"
+ 
+ EOF
+ 
+-- 
+2.33.0
+

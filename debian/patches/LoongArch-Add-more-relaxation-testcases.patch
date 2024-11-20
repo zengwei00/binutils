@@ -1,0 +1,182 @@
+From 580a53dab47c9e4f97c8559440d2bc43fb7331b6 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 16 Nov 2023 19:19:16 +0800
+Subject: [PATCH] LoongArch: Add more relaxation testcases
+
+1. .so relaxation testcase
+2. ld --no-relax testcase
+3. segment alignment testcase
+
+Signed-off-by: Peng Fan <fanpeng@loongson.cn>
+---
+ .../ld-loongarch-elf/relax-segment-max.s      | 12 +++
+ .../ld-loongarch-elf/relax-segment-min.s      | 12 +++
+ ld/testsuite/ld-loongarch-elf/relax-so.s      |  4 +
+ ld/testsuite/ld-loongarch-elf/relax.exp       | 80 +++++++++++++++++--
+ 4 files changed, 103 insertions(+), 5 deletions(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-segment-max.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-segment-min.s
+ create mode 100644 ld/testsuite/ld-loongarch-elf/relax-so.s
+
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-segment-max.s b/ld/testsuite/ld-loongarch-elf/relax-segment-max.s
+new file mode 100644
+index 00000000000..df15d4cab09
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-segment-max.s
+@@ -0,0 +1,12 @@
++# The .align may cause overflow because deleting nops.
++  .text		      # 0x120004000
++  .align 3
++  la.local $r12, .L1
++
++#  .fill 0x1f7ffc # max fill without overflow, .data address is 0x120200000
++#  .fill 0x1f8000 # min fill with overflow, .data address is 0x120204000
++  .fill 0x1fbff4 # max fill with overflow, .data address is 0x120204000
++
++  .data
++.L1:
++  .byte 2
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-segment-min.s b/ld/testsuite/ld-loongarch-elf/relax-segment-min.s
+new file mode 100644
+index 00000000000..476b9fba78c
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-segment-min.s
+@@ -0,0 +1,12 @@
++# The .align may cause overflow because deleting nops.
++  .text		      # 0x120004000
++  .align 3
++  la.local $r12, .L1
++
++#  .fill 0x1f7ffc # max fill without overflow, .data address is 0x120200000
++  .fill 0x1f8000 # min fill with overflow, .data address is 0x120204000
++#  .fill 0x1fbff4 # max fill with overflow, .data address is 0x120204000
++
++  .data
++.L1:
++  .byte 2
+diff --git a/ld/testsuite/ld-loongarch-elf/relax-so.s b/ld/testsuite/ld-loongarch-elf/relax-so.s
+new file mode 100644
+index 00000000000..01a404a8b47
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/relax-so.s
+@@ -0,0 +1,4 @@
++.text
++.align 2
++.L1:
++  la.local $r12, .L1
+diff --git a/ld/testsuite/ld-loongarch-elf/relax.exp b/ld/testsuite/ld-loongarch-elf/relax.exp
+index 7ff876d7914..24d79ed5c20 100644
+--- a/ld/testsuite/ld-loongarch-elf/relax.exp
++++ b/ld/testsuite/ld-loongarch-elf/relax.exp
+@@ -22,7 +22,7 @@
+ if [istarget loongarch64-*-*] {
+ 
+   if [isbuild loongarch64-*-*] {
+-    set testname "loongarch relax build"
++    set testname "loongarch relax .exe build"
+     set pre_builds [list \
+       [list \
+ 	"$testname" \
+@@ -39,17 +39,87 @@ if [istarget loongarch64-*-*] {
+     if [file exist "tmpdir/relax"] {
+       set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax"]
+       if { [ regexp ".*pcaddi.*pcaddi.*" $objdump_output] } {
+-	pass "loongarch relax"
++	pass "loongarch relax .exe"
+       } {
+-	fail "loongarch relax"
++	fail "loongarch relax .exe"
+       }
+     }
++
++    set testname "loongarch ld --no-relax build"
++    set pre_builds [list \
++      [list \
++	"$testname" \
++	"-Wl,--no-relax" \
++	"" \
++	{relax.s} \
++	{} \
++	"norelax" \
++      ] \
++    ]
++
++    run_cc_link_tests $pre_builds
++
++    if [file exist "tmpdir/norelax"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/norelax"]
++      if { [ regexp ".*pcaddi.*" $objdump_output] } {
++	fail "loongarch ld --no-relax"
++      } {
++	pass "loongarch ld --no-relax"
++      }
++    }
++
++    run_ld_link_tests \
++	[list \
++	    [list \
++		"loongarch relax .so build" \
++		"-shared -e 0x0" "" \
++		"" \
++		{relax-so.s} \
++		{} \
++		"relax-so" \
++	    ] \
++	]
++
++      if [file exist "tmpdir/relax-so"] {
++	set objdump_output [run_host_cmd "objdump" "-d tmpdir/relax-so"]
++	if { [ regexp ".*pcaddi.*" $objdump_output] } {
++	  pass "loongarch relax .so"
++	} {
++	  fail "loongarch relax .so"
++	}
++      }
++
++    # If symbol in data segment, offset need to sub segment align to prevent
++    # overflow.
++    run_ld_link_tests \
++	[list \
++	    [list \
++		"loongarch relax segment alignment min" \
++		"-e0 -Ttext 0x120004000 -pie -z relro" "" \
++		"" \
++		{relax-segment-min.s} \
++		{} \
++		"relax-segment-min" \
++	    ] \
++	]
++
++    run_ld_link_tests \
++	[list \
++	    [list \
++		"loongarch relax segment alignment max" \
++		"-e0 -Ttext 0x120004000 -pie -z relro" "" \
++		"" \
++		{relax-segment-max.s} \
++		{} \
++		"relax-segment-max" \
++	    ] \
++	]
+   }
+ 
+   run_ld_link_tests \
+       [list \
+ 	  [list \
+-	      "relax-align" \
++	      "loongarch relax-align" \
+ 	      "-e 0x0 -z relro" "" \
+ 	      "" \
+ 	      {relax-align.s} \
+@@ -64,7 +134,7 @@ if [istarget loongarch64-*-*] {
+   run_ld_link_tests \
+       [list \
+ 	  [list \
+-	      "uleb128" \
++	      "loongarch uleb128" \
+ 	      "-e 0x0" "" \
+ 	      "" \
+ 	      {uleb128.s} \
+-- 
+2.33.0
+

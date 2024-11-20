@@ -1,0 +1,126 @@
+From a5d5353514c361b3fbc5be1e5d1b51c7b3de591b Mon Sep 17 00:00:00 2001
+From: Lulu Cai <cailulu@loongson.cn>
+Date: Fri, 9 Aug 2024 17:40:59 +0800
+Subject: [PATCH 109/123] LoongArch: Fix wrong relocation handling of symbols
+ defined by PROVIDE
+
+If the symbol defined by PROVIDE in the link script is not in SECTION,
+the symbol is placed in the ABS section. The linker considers that
+symbols in the ABS section do not need to calculate PC relative offsets.
+
+Symbols in ABS sections should calculate PC relative offsets normally
+based on relocations.
+---
+ bfd/elfnn-loongarch.c                              |  2 +-
+ ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp |  3 +++
+ ld/testsuite/ld-loongarch-elf/provide_abs.d        | 12 ++++++++++++
+ ld/testsuite/ld-loongarch-elf/provide_abs.ld       |  1 +
+ ld/testsuite/ld-loongarch-elf/provide_noabs.d      | 13 +++++++++++++
+ ld/testsuite/ld-loongarch-elf/provide_noabs.ld     |  7 +++++++
+ ld/testsuite/ld-loongarch-elf/provide_sym.s        |  7 +++++++
+ 7 files changed, 44 insertions(+), 1 deletion(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/provide_abs.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/provide_abs.ld
+ create mode 100644 ld/testsuite/ld-loongarch-elf/provide_noabs.d
+ create mode 100644 ld/testsuite/ld-loongarch-elf/provide_noabs.ld
+ create mode 100644 ld/testsuite/ld-loongarch-elf/provide_sym.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index 0c499c47..14ecd944 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -3312,7 +3312,7 @@ loongarch_elf_relocate_section (bfd *output_bfd, struct bfd_link_info *info,
+       /* The r_symndx will be STN_UNDEF (zero) only for relocs against symbols
+ 	 from removed linkonce sections, or sections discarded by a linker
+ 	 script.  Also for R_*_SOP_PUSH_ABSOLUTE and PCREL to specify const.  */
+-      if (r_symndx == STN_UNDEF || bfd_is_abs_section (sec))
++      if (r_symndx == STN_UNDEF)
+ 	{
+ 	  defined_local = false;
+ 	  resolved_local = false;
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 78726900..cb6d2296 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -184,5 +184,8 @@ if [istarget "loongarch64-*-*"] {
+   run_dump_test "ie-le-relax"
+   run_dump_test "tlsdesc_abs"
+   run_dump_test "tlsdesc_extreme"
++  run_dump_test "provide_abs"
++  run_dump_test "provide_noabs"
++
+ }
+ 
+diff --git a/ld/testsuite/ld-loongarch-elf/provide_abs.d b/ld/testsuite/ld-loongarch-elf/provide_abs.d
+new file mode 100644
+index 00000000..1514fb18
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/provide_abs.d
+@@ -0,0 +1,12 @@
++#source: provide_sym.s
++#as:
++#ld: -T provide_abs.ld
++#objdump: -d
++
++.*: +file format .*
++
++#...
++   0:	58001085 	beq         	\$a0, \$a1, 16	# 10 <fun1>
++   4:	40000c80 	beqz        	\$a0, 12	# 10 <fun1>
++   8:	54000800 	bl          	8	# 10 <fun1>
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/provide_abs.ld b/ld/testsuite/ld-loongarch-elf/provide_abs.ld
+new file mode 100644
+index 00000000..473476cd
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/provide_abs.ld
+@@ -0,0 +1 @@
++PROVIDE(fun1 = 0x10);
+diff --git a/ld/testsuite/ld-loongarch-elf/provide_noabs.d b/ld/testsuite/ld-loongarch-elf/provide_noabs.d
+new file mode 100644
+index 00000000..7d6bc4d1
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/provide_noabs.d
+@@ -0,0 +1,13 @@
++#source: provide_sym.s
++#as:
++#ld: -T provide_noabs.ld
++#objdump: -d
++
++.*: +file format .*
++
++
++#...
++   0:	58001085 	beq         	\$a0, \$a1, 16	# 10 <fun1>
++   4:	40000c80 	beqz        	\$a0, 12	# 10 <fun1>
++   8:	54000800 	bl          	8	# 10 <fun1>
++#pass
+diff --git a/ld/testsuite/ld-loongarch-elf/provide_noabs.ld b/ld/testsuite/ld-loongarch-elf/provide_noabs.ld
+new file mode 100644
+index 00000000..0154c6f3
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/provide_noabs.ld
+@@ -0,0 +1,7 @@
++SECTIONS
++{
++  .text :
++  {
++    PROVIDE(fun1 = 0x10);
++  }
++}
+diff --git a/ld/testsuite/ld-loongarch-elf/provide_sym.s b/ld/testsuite/ld-loongarch-elf/provide_sym.s
+new file mode 100644
+index 00000000..6610894e
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/provide_sym.s
+@@ -0,0 +1,7 @@
++	.text
++	.globl	main
++	.type	main, @function
++main:
++	beq	$a0,$a1,%b16(fun1)
++	beqz	$a0,%b21(fun1)
++	bl	%b26(fun1)
+-- 
+2.33.0
+

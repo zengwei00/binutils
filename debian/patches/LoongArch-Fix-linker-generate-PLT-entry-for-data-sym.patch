@@ -1,0 +1,121 @@
+From 9836fa5ff54d6543ab05e552579810ef150d8a77 Mon Sep 17 00:00:00 2001
+From: mengqinggang <mengqinggang@loongson.cn>
+Date: Thu, 1 Dec 2022 17:23:14 +0800
+Subject: [PATCH 039/123] LoongArch: Fix linker generate PLT entry for data
+ symbol
+
+With old "medium" code model, we call a function with a pair of PCALAU12I
+and JIRL instructions. The assembler produces something like:
+
+   8:	1a00000c 	pcalau12i   	$t0, 0
+			8: R_LARCH_PCALA_HI20	g
+   c:	4c000181 	jirl        	$ra, $t0, 0
+			c: R_LARCH_PCALA_LO12	g
+
+The linker generates a "PLT entry" for data without any diagnostic.
+If "g" is a data symbol and ld with -shared option, it may load two
+instructions in the PLT.
+
+Without -shared option, loongarch_elf_adjust_dynamic_symbol can delete PLT
+entry.
+
+For R_LARCH_PCALA_HI20 relocation, linker only generate PLT entry for STT_FUNC
+and STT_GNU_IFUNC symbols.
+---
+ bfd/elfnn-loongarch.c                         |  6 ++++-
+ ld/testsuite/ld-loongarch-elf/data-plt.s      | 20 ++++++++++++++++
+ .../ld-loongarch-elf/ld-loongarch-elf.exp     | 24 +++++++++++++++++++
+ ld/testsuite/ld-loongarch-elf/libjirl.s       |  1 +
+ 4 files changed, 50 insertions(+), 1 deletion(-)
+ create mode 100644 ld/testsuite/ld-loongarch-elf/data-plt.s
+
+diff --git a/bfd/elfnn-loongarch.c b/bfd/elfnn-loongarch.c
+index f7eb66da..73e4b819 100644
+--- a/bfd/elfnn-loongarch.c
++++ b/bfd/elfnn-loongarch.c
+@@ -891,8 +891,12 @@ loongarch_elf_check_relocs (bfd *abfd, struct bfd_link_info *info,
+ 	    h->non_got_ref = 1;
+ 	  break;
+ 
++	/* For normal cmodel, pcalau12i + addi.d/w used to data.
++	   For first version medium cmodel, pcalau12i + jirl are used to
++	   function call, it need to creat PLT entry for STT_FUNC and
++	   STT_GNU_IFUNC type symbol.  */
+ 	case R_LARCH_PCALA_HI20:
+-	  if (h != NULL)
++	  if (h != NULL && (STT_FUNC == h->type || STT_GNU_IFUNC == h->type))
+ 	    {
+ 	      /* For pcalau12i + jirl.  */
+ 	      h->needs_plt = 1;
+diff --git a/ld/testsuite/ld-loongarch-elf/data-plt.s b/ld/testsuite/ld-loongarch-elf/data-plt.s
+new file mode 100644
+index 00000000..faff052c
+--- /dev/null
++++ b/ld/testsuite/ld-loongarch-elf/data-plt.s
+@@ -0,0 +1,20 @@
++# The first version medium codel model function call is: pcalau12i + jirl.
++# R_LARCH_PCALA_HI20 only need to generate PLT entry for function symbols.
++	.text
++	.globl	a
++
++	.data
++	.align	2
++	.type	a, @object
++	.size	a, 4
++a:
++	.word	1
++
++	.text
++	.align	2
++	.globl	test
++	.type	test, @function
++test:
++	pcalau12i	$r12,%pc_hi20(a)
++	ld.w	$r12,$r12,%pc_lo12(a)
++	.size	test, .-test
+diff --git a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+index 8dc04fea..64e644d3 100644
+--- a/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
++++ b/ld/testsuite/ld-loongarch-elf/ld-loongarch-elf.exp
+@@ -59,6 +59,30 @@ if [istarget "loongarch64-*-*"] {
+ 	]
+   }
+ 
++  # loongarch*-elf target do not support -shared option
++  if [check_shared_lib_support] {
++    run_ld_link_tests \
++	[list \
++	     [list \
++		  "data plt" \
++		  "-shared" "" \
++		  "" \
++		  {data-plt.s} \
++		  {} \
++		  "data-plt.so" \
++	     ] \
++	]
++
++    if [file exist "tmpdir/data-plt.so"] {
++      set objdump_output [run_host_cmd "objdump" "-d tmpdir/data-plt.so"]
++      if { [ regexp "<a@plt>" $objdump_output] } {
++	fail "data plt"
++      } {
++	pass "data plt"
++      }
++    }
++  }
++
+   run_ld_link_tests \
+       [list \
+ 	  [list \
+diff --git a/ld/testsuite/ld-loongarch-elf/libjirl.s b/ld/testsuite/ld-loongarch-elf/libjirl.s
+index 4d963870..de028c5a 100644
+--- a/ld/testsuite/ld-loongarch-elf/libjirl.s
++++ b/ld/testsuite/ld-loongarch-elf/libjirl.s
+@@ -1,2 +1,3 @@
++.type func @function
+ pcalau12i $r12, %pc_hi20(func)
+ jirl $r1,$r12, %pc_lo12(func)
+-- 
+2.33.0
+
