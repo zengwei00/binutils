@@ -1,3 +1,9 @@
+binutils (2.41-6deepin7) unstable; urgency=medium
+
+  * Fix slowdown about partial linking.
+
+ -- Xin Wang <wangxin03@loongson.cn>  Tue, 16 Jan 2025 15:33 +0800
+
 binutils (2.41-6deepin6) unstable; urgency=medium
 
   * Disable gold linker for MIPS targets as they are broken as of 2.41.

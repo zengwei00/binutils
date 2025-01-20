@@ -173,3 +173,4 @@ remove-file-produced-by-bison.patch
 replace-space-with-tab.patch
 LoongArch-binutils-compatible-with-older-gcc.diff
 LoongArch-remove-test-cases-for-compatibility.patch
+PR32238-ld-r-slowdown-since-21401fc7bf.patch
