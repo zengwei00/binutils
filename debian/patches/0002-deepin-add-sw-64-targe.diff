@@ -1,0 +1,15 @@
+diff --git a/gas/configure.ac b/gas/configure.ac
+index b79586d6..32f5eadc 100644
+--- a/gas/configure.ac
++++ b/gas/configure.ac
+@@ -286,6 +286,10 @@ changequote([,])dnl
+ 	  AC_MSG_ERROR(Solaris must be configured little endian)
+ 	fi
+ 	;;
++      sw_64)
++	AC_DEFINE(TARGET_SW_64, 1,
++		    [Define pal_opt flag for sunway.])
++	;;
+     esac
+ 
+     if test ${this_target} = $target ; then

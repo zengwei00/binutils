@@ -177,7 +177,11 @@ ifneq (,$(filter $(DEB_HOST_ARCH),amd64 i386 x32 hppa))
   with_hppa64 = yes
 endif
 
-with_multiarch := yes
+ifeq ($(DEB_HOST_ARCH),sw64)
+  with_multiarch := no
+else
+  with_multiarch := yes
+endif
 
 # disabled: no build-needed restriction used in the autopkg test
 ifeq (0,1)
@@ -281,6 +285,10 @@ gold_targets = \
 	amd64 arm64 armel armhf i386 \
 	powerpc ppc64el sparc sparc64 s390x \
 	x32 kfreebsd-amd64 kfreebsd-i386 hurd-i386
+
+ifeq ($(DEB_HOST_ARCH),sw64)
+	gold_targets += sw64
+endif
 
 ifneq (,$(filter $(DEB_HOST_ARCH), $(gold_targets)))
   with_gold = yes
@@ -512,6 +520,7 @@ CONFARGS_TARGET_s390		= --enable-targets=s390x-linux-gnu
 CONFARGS_TARGET_s390x		= --enable-targets=s390-linux-gnu
 
 CONFARGS_TARGET_amd64		= --enable-targets=x86_64-linux-gnux32,x86_64-pep
+CONFARGS_TARGET_sw64		= --with-cpu=sw6b
 
 CONFARGS_TARGET_i386		= --enable-targets=x86_64-linux-gnu,x86_64-linux-gnux32,x86_64-pep
 
@@ -589,11 +598,14 @@ update-patches:
 
 ###############################################################################
 
+# And now the rules...
+include debian/rules.d/*.mk
+
 ################
 # clean target #
 ################
 
-clean:
+clean: unpatch
 	$(checkdir)
 	rm -rf stamps
 	rm -rf builddir-*
@@ -778,6 +790,10 @@ multiarch_targets = \
 	x86_64-linux-gnux32 \
 	m32r-linux-gnu \
 	x86_64-pep
+
+ifeq ($(DEB_HOST_ARCH),sw64)
+	multiarch_targets += sw_64-linux-gnu
+endif
 
 # try to work around #758830
 ifeq ($(DEB_HOST_ARCH),sh4)
@@ -1037,7 +1053,7 @@ stamps/build-hppa64: stamps/configure-hppa64
 
 ###############################################################################
 
-pre-build:
+pre-build: patch
 #ifneq (,$(filter $(DEB_HOST_ARCH), armel powerpc))
 #	@echo Build it ...
 #else
@@ -1605,7 +1621,11 @@ endif
 	$(install_file) debian/binutils.triggers $(D_CROSS)/DEBIAN/triggers
 
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	dpkg-shlibdeps $(D_CROSS)/$(PF)/bin/* -l$(d_lib)/$(PF)/lib/$(DEB_HOST_MULTIARCH) --ignore-missing-info
+else
 	dpkg-shlibdeps $(D_CROSS)/$(PF)/bin/* -l$(d_lib)/$(PF)/lib/$(DEB_HOST_MULTIARCH)
+endif
 	dpkg-gencontrol -P$(D_CROSS) -p$(P_CROSS) \
 		-VBuilt-Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W binutils-source)"
 	cd $(D_CROSS) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
@@ -1660,8 +1680,13 @@ ifneq (,$(TARGET))
 	done
 
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	dpkg-shlibdeps $(d_cross)/$(PF)/bin/* \
+	  -ldebian/tmp/$(PF)/lib/$(DEB_TARGET_MULTIARCH) -l$(d_lib)/$(PF)/lib/$(DEB_TARGET_MULTIARCH) --ignore-missing-info
+else
 	dpkg-shlibdeps $(d_cross)/$(PF)/bin/* \
 	  -ldebian/tmp/$(PF)/lib/$(DEB_TARGET_MULTIARCH) -l$(d_lib)/$(PF)/lib/$(DEB_TARGET_MULTIARCH)
+endif
 	dpkg-gencontrol -P$(d_cross) -p$(p_cross) \
 		-VBuilt-Using="$(shell dpkg-query -f '$${source:Package} (= $${source:Version}), ' -W binutils-source)"
 	find $(d_cross) -depth -newermt '$(BUILD_DATE)' -print0 | \
@@ -1885,7 +1910,11 @@ endif
 	cd $(d_bin) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_lib) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps --ignore-missing-info
+else
 	find $(d_lib) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps
+endif
 	dpkg-gencontrol -P$(d_lib) -p$(p_lib)
 	cd $(d_lib) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_lib)-dbg -p$(p_lib)-dbg
@@ -1899,14 +1928,22 @@ endif
 	dpkg-gensymbols -P$(d_sfrm) -p$(p_sfrm)
 
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_ctf) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps --ignore-missing-info
+else
 	find $(d_ctf) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps
+endif
 	dpkg-gencontrol -P$(d_ctf) -p$(p_ctf)
 	cd $(d_ctf) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_ctf)-dbg -p$(p_ctf)-dbg
 	cd $(d_ctf)-dbg && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_ctfn) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps --ignore-missing-info
+else
 	find $(d_ctfn) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps
+endif
 	dpkg-gencontrol -P$(d_ctfn) -p$(p_ctfn)
 	cd $(d_ctfn) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_ctfn)-dbg -p$(p_ctfn)-dbg
@@ -1914,7 +1951,11 @@ endif
 
 ifeq ($(with_gprofng),yes)
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_gpng) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps --ignore-missing-info
+else
 	find $(d_gpng) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps
+endif
 	dpkg-gencontrol -P$(d_gpng) -p$(p_gpng)
 	cd $(d_gpng) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_gpng)-dbg -p$(p_gpng)-dbg
@@ -1922,7 +1963,11 @@ ifeq ($(with_gprofng),yes)
 endif
 
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_sfrm) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps --ignore-missing-info
+else
 	find $(d_sfrm) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps
+endif
 	dpkg-gencontrol -P$(d_sfrm) -p$(p_sfrm)
 	cd $(d_sfrm) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_sfrm)-dbg -p$(p_sfrm)-dbg
@@ -1934,7 +1979,11 @@ endif
 	cd $(d_com) && find -type f ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_nat) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps -l$(d_lib)/$(PF)/lib/$(DEB_HOST_MULTIARCH) --ignore-missing-info
+else
 	find $(d_nat) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps -l$(d_lib)/$(PF)/lib/$(DEB_HOST_MULTIARCH)
+endif
 	dpkg-gencontrol -P$(d_nat) -p$(p_nat) -VextraDepends='libbinutils (= $${binary:Version})'
 	cd $(d_nat) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_nat)-dbg -p$(p_nat)-dbg -VextraDepends='libbinutils (= $${binary:Version})'
@@ -1946,7 +1995,11 @@ endif
 
 ifeq ($(with_multiarch),yes)
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_mul) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps --ignore-missing-info
+else
 	find $(d_mul) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps
+endif
 	dpkg-gencontrol -P$(d_mul) -p$(p_mul)
 	cd $(d_mul) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_mul)-dbg -p$(p_mul)-dbg
@@ -1960,7 +2013,11 @@ endif
 
 ifeq ($(with_hppa64),yes)
 	rm -f debian/substvars
+ifeq ($(DEB_HOST_ARCH),sw64)
+	find $(d_hppa64) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps --ignore-missing-info
+else
 	find $(d_hppa64) -type f | xargs file | grep ELF | cut -d: -f 1 | xargs dpkg-shlibdeps
+endif
 	dpkg-gencontrol -P$(d_hppa64) -p$(p_hppa64)
 	cd $(d_hppa64) && find -type f  ! -regex './DEBIAN/.*' -printf '%P\n' | LC_ALL=C sort | xargs md5sum > DEBIAN/md5sums
 	dpkg-gencontrol -P$(d_hppa64)-dbg -p$(p_hppa64)-dbg

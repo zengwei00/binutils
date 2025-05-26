@@ -324,6 +324,32 @@ Depends: binutils-i686-linux-gnu (= ${binary:Version})
 Description: GNU binary utilities, for i686-linux-gnu target (debug symbols)
  This package provides debug symbols for binutils-i686-linux-gnu.
 
+Package: binutils-sw-64-linux-gnu
+Priority: optional
+Architecture: arm64 amd64 i386 x32 ppc64el loong64 riscv64 sw64
+Multi-Arch: allowed
+Depends: binutils-common (= ${binary:Version}),
+  ${shlibs:Depends}, ${extraDepends}
+Suggests: binutils-doc (= ${source:Version})
+Provides: 
+Breaks: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Replaces: binutils (<< 2.29-6), binutils-dev (<< 2.38.50.20220609-2)
+Description: GNU binary utilities, for sw-64-linux-gnu target
+ This package provides GNU assembler, linker and binary utilities
+ for the sw-64-linux-gnu target.
+ .
+ You don't need this package unless you plan to cross-compile programs
+ for aarch64-linux-gnu and aarch64-linux-gnu is not your native platform.
+
+Package: binutils-sw-64-linux-gnu-dbg
+Section: debug
+Priority: optional
+Architecture: arm64 amd64 i386 x32 ppc64el loong64 riscv64 sw64
+Multi-Arch: foreign
+Depends: binutils-sw-64-linux-gnu (= ${binary:Version})
+Description: GNU binary utilities, for sw-64-linux-gnu target (debug symbols)
+ This package provides debug symbols for binutils-sw-64-linux-gnu.
+
 Package: binutils-aarch64-linux-gnu
 Priority: optional
 Architecture: arm64 amd64 i386 x32 ppc64el loong64 riscv64
