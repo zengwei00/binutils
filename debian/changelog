@@ -1,3 +1,9 @@
+binutils (2.41-6deepin8) unstable; urgency=medium
+
+  * fix CVE-2024-57360
+
+ -- zengwei  <zengwei1@uniontech.com>  Fri, 18 Jul 2025 17:20:13 +0800
+
 binutils (2.41-6deepin7) unstable; urgency=medium
 
   * Fix slowdown about partial linking.
