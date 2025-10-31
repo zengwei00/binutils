@@ -1,3 +1,11 @@
+binutils (2.41-6deepin10) unstable; urgency=medium
+
+  *  fix CVE-2024-57360 CVE-2024-53589 CVE-2025-0840 CVE-2025-1176 CVE-2025-1178
+         CVE-2025-1182 CVE-2025-3198 CVE-2025-5244 CVE-2025-5245 
+         CVE-2025-7545 CVE-2025-7546 CVE-2025-8225
+
+ -- zengwei <zengwei1@uniontech.com>  Fri, 31 Oct 2025 16:12:25 +0800
+
 binutils (2.41-6deepin9) unstable; urgency=medium
 
   * feat: add sw64 support.

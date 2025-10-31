@@ -175,3 +175,14 @@ LoongArch-binutils-compatible-with-older-gcc.diff
 LoongArch-remove-test-cases-for-compatibility.patch
 PR32238-ld-r-slowdown-since-21401fc7bf.patch
 0001-CVE-2024-57360.patch
+CVE-2024-53589.patch
+CVE-2025-0840.patch
+0001-CVE-2025-1176.patch
+CVE-2025-1178.patch
+0001-CVE-2025-1182.patch
+CVE-2025-3198.patch
+0001-CVE-2025-5244.patch
+CVE-2025-5245.patch
+CVE-2025-7545.patch
+CVE-2025-7546.patch
+CVE-2025-8225.patch
